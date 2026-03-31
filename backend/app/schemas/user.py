@@ -31,6 +31,8 @@ class UserPublic(BaseModel):
     city: Optional[str] = None
     website: Optional[str] = None
     is_verified: bool
+    is_admin: bool = False
+    is_blocked: bool = False
     subscription_type: str
     artist_subscription_type: str
     subscription_expires_at: Optional[datetime] = None

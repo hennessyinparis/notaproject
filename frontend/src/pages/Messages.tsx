@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Send } from 'lucide-react';
+import { ArrowLeft, Send } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 
@@ -50,9 +50,13 @@ export function Messages() {
     refetchInterval: 6000,
   });
 
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 640;
+  const showList = !isMobile || !selectedUser;
+  const showChat = !isMobile || !!selectedUser;
+
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr', height: 'calc(100vh - 72px - 64px)', background: 'var(--bg-surface)', borderRadius: 16, overflow: 'hidden', border: '1px solid var(--border)' }}>
-      <div style={{ borderRight: '1px solid var(--border)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '300px 1fr', height: 'calc(100vh - 72px - 64px)', background: 'var(--bg-surface)', borderRadius: 16, overflow: 'hidden', border: '1px solid var(--border)' }}>
+      {showList && <div style={{ borderRight: '1px solid var(--border)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         <div style={{ padding: '16px', borderBottom: '1px solid var(--border)' }}>
           <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>Сообщения</h2>
         </div>
@@ -91,14 +95,14 @@ export function Messages() {
             </div>
           ))}
         </div>
-      </div>
+      </div>}
 
-      {selectedUser ? <ChatWindow username={selectedUser} /> : <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>Выберите диалог</div>}
+      {showChat ? (selectedUser ? <ChatWindow username={selectedUser} onBack={isMobile ? () => setSelectedUser(null) : undefined} /> : <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>Выберите диалог</div>) : null}
     </div>
   );
 }
 
-function ChatWindow({ username }: { username: string }) {
+function ChatWindow({ username, onBack }: { username: string; onBack?: () => void }) {
   const [text, setText] = useState('');
   const queryClient = useQueryClient();
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -133,6 +137,7 @@ function ChatWindow({ username }: { username: string }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12 }}>
+        {onBack ? <button type="button" onClick={onBack} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}><ArrowLeft size={18} /></button> : null}
         <Avatar user={{ display_name: recipientQ.data?.display_name ?? username, avatar_url: recipientQ.data?.avatar_url }} size={36} />
         <Link to={`/artist/${username}`} style={{ fontWeight: 600, fontSize: 15, color: 'var(--text-primary)', textDecoration: 'none' }}>
           {recipientQ.data?.display_name ?? username}
@@ -153,7 +158,7 @@ function ChatWindow({ username }: { username: string }) {
                 lineHeight: 1.4,
               }}
             >
-              {msg.track && <div style={{ fontSize: 12, opacity: 0.9, marginBottom: 4 }}>Трек: {msg.track.title}</div>}
+              {msg.track && <div style={{ fontSize: 12, opacity: 0.9, marginBottom: 4 }}>Трек: <Link to={`/track/${msg.track.id}`} style={{ color: 'inherit', textDecoration: 'underline' }}>{msg.track.title}</Link></div>}
               {msg.text}
               <div style={{ fontSize: 11, opacity: 0.6, marginTop: 2, textAlign: 'right' }}>{formatTime(msg.created_at)}</div>
             </div>

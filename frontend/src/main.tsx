@@ -7,6 +7,7 @@ import { Toaster } from 'react-hot-toast';
 import App from './App';
 import './index.css';
 import { PrivateRoute, ProRoute } from './components/routing/PrivateRoute';
+import { AdminRoute } from './components/routing/AdminRoute';
 import { useThemeStore } from './store/themeStore';
 import { useAuthStore } from './store/authStore';
 import { setAuthHeader } from './api/client';
@@ -29,6 +30,7 @@ import { Register } from './pages/Register';
 import { ForArtists } from './pages/ForArtists';
 import { Feed } from './pages/Feed';
 import { Messages } from './pages/Messages';
+import { AdminPage } from './pages/Admin';
 
 const qc = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 60_000 } },
@@ -143,6 +145,14 @@ createRoot(document.getElementById('root')!).render(
             />
             <Route path="login" element={<Login />} />
             <Route path="register" element={<Register />} />
+            <Route
+              path="admin"
+              element={
+                <AdminRoute>
+                  <AdminPage />
+                </AdminRoute>
+              }
+            />
           </Route>
         </Routes>
         <Toaster toastOptions={{ style: { background: 'var(--bg-elevated)', color: 'var(--text-primary)' } }} />

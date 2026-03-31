@@ -122,7 +122,7 @@ function UserMenu() {
           onMouseLeave={handleMouseLeave}
         >
           <Link
-            to={`/profile/${user.username}`}
+            to={`/artist/${user.username}`}
             className="block rounded-lg px-3 py-2 text-sm hover:bg-[var(--bg-elevated)]"
             onClick={() => setOpen(false)}
           >
@@ -149,6 +149,15 @@ function UserMenu() {
           >
             Настройки
           </Link>
+          {user.is_admin && (
+            <Link
+              to="/admin"
+              className="block rounded-lg px-3 py-2 text-sm hover:bg-[var(--bg-elevated)]"
+              onClick={() => setOpen(false)}
+            >
+              Админка
+            </Link>
+          )}
           <button
             type="button"
             className="w-full rounded-lg px-3 py-2 text-left text-sm text-[var(--error)] hover:bg-[var(--bg-elevated)]"

@@ -35,6 +35,14 @@
 - For Artists: страница **обогащена** секциями и CTA
 - Поиск: убраны **настроения** (муд), остались жанры
 
+## ✅ Критические фиксы аудита (31.03.2026, блок #1-#5)
+
+- Навигация профиля: в `UserMenu` ссылка профиля исправлена с `/profile/:username` на каноничный `/artist/:username`
+- `TrackRow`: лайк больше не локальный `useState`-тумблер; добавлен реальный API toggle (`POST/DELETE /api/tracks/{id}/like`) + `invalidateQueries(['track', id])`
+- `Comments`: добавлена форма отправки комментария (`POST /api/comments/track/{trackId}`), очистка поля после успеха, toast-нотификации
+- `Studio`: убран silent-fallback через `.catch(() => ({ total: 0 }))`; вместо Pro-only `/api/analytics/plays` подключен новый endpoint `/api/analytics/my-basic-stats`
+- Backend analytics: добавлен `GET /api/analytics/my-basic-stats` для всех авторизованных пользователей (`get_current_user`)
+
 ## ✅ Большой редизайн и доработка (31.03.2026)
 
 - Дизайн-система обновлена под Apple Music стиль: новые CSS-переменные, glass-фон, тени карточек, радиусы, скрытие горизонтального скроллбара

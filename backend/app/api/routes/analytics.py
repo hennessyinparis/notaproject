@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_pro_user
+from app.api.deps import get_current_pro_user, get_current_user
 from app.core.database import get_db
 from app.models.track import Track
 from app.models.track_play import TrackPlay
@@ -59,6 +59,20 @@ async def plays_summary(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_pro_user),
 ) -> dict:
+    tr = await db.execute(select(Track.id).where(Track.user_id == user.id))
+    ids = [r[0] for r in tr.all()]
+    if not ids:
+        return {"total": 0}
+    c = await db.execute(select(func.count()).select_from(TrackPlay).where(TrackPlay.track_id.in_(ids)))
+    return {"total": c.scalar_one() or 0}
+
+
+@router.get("/my-basic-stats")
+async def my_basic_stats(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Базовая статистика для всех пользователей."""
     tr = await db.execute(select(Track.id).where(Track.user_id == user.id))
     ids = [r[0] for r in tr.all()]
     if not ids:

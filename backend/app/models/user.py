@@ -38,6 +38,8 @@ class User(Base):
     # Поле оставлено для совместимости со схемой БД, но теперь по умолчанию True.
     is_artist: Mapped[bool] = mapped_column(Boolean, default=True)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_blocked: Mapped[bool] = mapped_column(Boolean, default=False)
     subscription_type: Mapped[str] = mapped_column(
         String(32), default=UserSubscriptionType.FREE.value
     )

@@ -89,6 +89,8 @@ async def login(body: LoginBody, db: AsyncSession = Depends(get_db)) -> TokenPai
     user = result.scalar_one_or_none()
     if not user or not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Неверные учётные данные")
+    if user.is_blocked:
+        raise HTTPException(status_code=403, detail="Аккаунт заблокирован администратором")
 
     access = create_access_token({"sub": str(user.id)})
     refresh = create_refresh_token({"sub": str(user.id)})

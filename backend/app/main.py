@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.api.routes import (
+    admin,
     analytics,
     auth,
     comments,
@@ -52,6 +53,7 @@ app.include_router(messages.router, prefix=api_prefix)
 app.include_router(notifications.router, prefix=api_prefix)
 app.include_router(subscriptions.router, prefix=api_prefix)
 app.include_router(analytics.router, prefix=api_prefix)
+app.include_router(admin.router, prefix=api_prefix)
 
 app.mount("/media", StaticFiles(directory=str(settings.MEDIA_DIR.resolve())), name="media")
 

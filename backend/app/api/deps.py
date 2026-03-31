@@ -25,7 +25,10 @@ async def get_current_user_optional(
     if not sub:
         return None
     result = await db.execute(select(User).where(User.id == int(sub)))
-    return result.scalar_one_or_none()
+    u = result.scalar_one_or_none()
+    if u and u.is_blocked:
+        return None
+    return u
 
 
 async def get_current_user(
@@ -41,4 +44,10 @@ async def get_current_pro_user(user: Annotated[User, Depends(get_current_user)])
 
     if user.artist_subscription_type != ArtistSubscriptionType.PRO.value:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Требуется подписка «Артист Про»")
+    return user
+
+
+async def get_current_admin_user(user: Annotated[User, Depends(get_current_user)]) -> User:
+    if not user.is_admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Требуются права администратора")
     return user

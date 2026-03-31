@@ -1,7 +1,10 @@
-import { Heart, MoreHorizontal, Pause, Play } from 'lucide-react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { Heart, MoreHorizontal, Pause, Play, Repeat, Share2 } from 'lucide-react';
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import toast from 'react-hot-toast';
 
+import { api } from '../../api/client';
 import { useAuthStore } from '../../store/authStore';
 import { goToLogin } from '../../utils/authNavigation';
 import { usePlayerStore } from '../../store/playerStore';
@@ -24,7 +27,9 @@ function stringToGradient(str: string): string {
 
 export function TrackRow({ track, index, queue }: TrackRowProps) {
   const [isLiked, setIsLiked] = useState(false);
+  const [isReposted, setIsReposted] = useState(false);
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const accessToken = useAuthStore((s) => s.accessToken);
   const playTrack = usePlayerStore((s) => s.playTrack);
   const toggle = usePlayerStore((s) => s.toggle);
@@ -39,6 +44,33 @@ export function TrackRow({ track, index, queue }: TrackRowProps) {
     if (isCurrentTrack) toggle();
     else playTrack(track, queue);
   };
+
+  const likeMutation = useMutation({
+    mutationFn: async () => {
+      if (isLiked) {
+        await api.delete(`/api/tracks/${track.id}/like`);
+        return false;
+      }
+      await api.post(`/api/tracks/${track.id}/like`);
+      return true;
+    },
+    onSuccess: (liked) => {
+      setIsLiked(liked);
+      queryClient.invalidateQueries({ queryKey: ['track', String(track.id)] });
+    },
+    onError: () => toast.error('Ошибка'),
+  });
+  const repostMutation = useMutation({
+    mutationFn: async () => {
+      if (isReposted) {
+        await api.delete(`/api/tracks/${track.id}/repost`);
+        return false;
+      }
+      await api.post(`/api/tracks/${track.id}/repost`);
+      return true;
+    },
+    onSuccess: (reposted) => setIsReposted(reposted),
+  });
 
   return (
     <div
@@ -92,7 +124,9 @@ export function TrackRow({ track, index, queue }: TrackRowProps) {
             color: isCurrentTrack ? 'var(--primary)' : 'var(--text-primary)',
           }}
         >
-          {track.title}
+          <Link to={`/track/${track.id}`} onClick={(e) => e.stopPropagation()} style={{ color: 'inherit', textDecoration: 'none' }}>
+            {track.title}
+          </Link>
         </div>
         <div
           style={{
@@ -103,9 +137,16 @@ export function TrackRow({ track, index, queue }: TrackRowProps) {
             whiteSpace: 'nowrap',
           }}
         >
-          {track.user?.display_name ?? 'Неизвестный артист'}
+          {track.user ? (
+            <Link to={`/artist/${track.user.username}`} onClick={(e) => e.stopPropagation()} style={{ color: 'inherit', textDecoration: 'none' }}>
+              {track.user.display_name}
+            </Link>
+          ) : (
+            'Неизвестный артист'
+          )}
         </div>
       </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
       <button
         type="button"
         onClick={(e) => {
@@ -114,8 +155,9 @@ export function TrackRow({ track, index, queue }: TrackRowProps) {
             goToLogin(navigate);
             return;
           }
-          setIsLiked((v) => !v);
+          likeMutation.mutate();
         }}
+        disabled={likeMutation.isPending}
         style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}
       >
         <Heart
@@ -126,6 +168,29 @@ export function TrackRow({ track, index, queue }: TrackRowProps) {
           }}
         />
       </button>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          if (!accessToken) return goToLogin(navigate);
+          repostMutation.mutate();
+        }}
+        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}
+      >
+        <Repeat size={14} style={{ color: isReposted ? 'var(--primary)' : 'var(--text-muted)' }} />
+      </button>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          navigator.clipboard.writeText(`${window.location.origin}/track/${track.id}`);
+          toast.success('Ссылка скопирована');
+        }}
+        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}
+      >
+        <Share2 size={14} style={{ color: 'var(--text-muted)' }} />
+      </button>
+      </div>
       <div style={{ fontSize: 13, color: 'var(--text-muted)', textAlign: 'right' }}>
         {formatDuration(track.duration_seconds)}
       </div>

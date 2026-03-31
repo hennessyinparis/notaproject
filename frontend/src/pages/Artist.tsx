@@ -55,6 +55,7 @@ export function ArtistPage() {
   const [editOpen, setEditOpen] = useState(false);
   const [showAllTracks, setShowAllTracks] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const [editForm, setEditForm] = useState({
     display_name: '',
     bio: '',
@@ -71,6 +72,11 @@ export function ArtistPage() {
   const tracksQ = useQuery({
     queryKey: ['user-tracks', username],
     queryFn: () => api.get<Track[]>(`/api/users/${username}/tracks`).then((r) => r.data),
+    enabled: !!username,
+  });
+  const followersQ = useQuery({
+    queryKey: ['user-followers-count', username],
+    queryFn: () => api.get<{ count: number }>(`/api/users/${username}/followers/count`).then((r) => r.data),
     enabled: !!username,
   });
 
@@ -195,6 +201,7 @@ export function ArtistPage() {
 
   const totalPlays = tracksQ.data?.reduce((sum, t) => sum + (t.plays_count || 0), 0) || 0;
   const monthlyListeners = Math.floor(totalPlays / 30);
+  const followersCount = followersQ.data?.count ?? 0;
   const planBadge = primarySubscriptionBadge(u);
   const expiresLabel = formatSubscriptionDate(u.subscription_expires_at);
 
@@ -229,7 +236,8 @@ export function ArtistPage() {
             </div>
 
             <div className="min-w-0 flex-1 space-y-4">
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                 {u.is_verified && (
                   <span className="rounded-full bg-white/15 px-2.5 py-0.5 text-xs font-medium text-white/90 ring-1 ring-white/25">
                     Верифицирован
@@ -241,6 +249,8 @@ export function ArtistPage() {
                 {isOwnProfile && expiresLabel && (
                   <span className="text-xs text-white/55">до {expiresLabel}</span>
                 )}
+                </div>
+                <Link to="/subscriptions" className="text-xs text-white/80 hover:underline">Подписка</Link>
               </div>
 
               <div>
@@ -274,9 +284,11 @@ export function ArtistPage() {
                 </div>
               )}
 
-              {monthlyListeners > 0 && (
-                <p className="text-sm text-white/60">{formatNumber(monthlyListeners)} слушателей в месяц</p>
-              )}
+              <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-white/70">
+                <span>{formatNumber(followersCount)} подписчиков</span>
+                <span>{formatNumber(tracksQ.data?.length ?? 0)} треков</span>
+                {monthlyListeners > 0 && <span>{formatNumber(monthlyListeners)} слушателей в месяц</span>}
+              </div>
 
               <div className="flex flex-wrap items-center gap-3 pt-1">
                 <button
@@ -300,26 +312,49 @@ export function ArtistPage() {
                     Редактировать профиль
                   </button>
                 ) : (
-                  <button
-                    type="button"
-                    onClick={handleFollow}
-                    className={`rounded-full border px-5 py-2.5 text-[15px] font-semibold transition ${
-                      isFollowing
-                        ? 'border-white/40 bg-white/15 text-white'
-                        : 'border-white/60 bg-transparent text-white hover:bg-white/10'
-                    }`}
-                  >
-                    {isFollowing ? 'Вы подписаны' : 'Подписаться'}
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleFollow}
+                      className={`rounded-full border px-5 py-2.5 text-[15px] font-semibold transition ${
+                        isFollowing
+                          ? 'border-white/40 bg-white/15 text-white'
+                          : 'border-white/60 bg-transparent text-white hover:bg-white/10'
+                      }`}
+                    >
+                      {isFollowing ? 'Вы подписаны' : 'Подписаться'}
+                    </button>
+                    <Link to={`/messages/${u.username}`} className="rounded-full border border-white/40 bg-white/10 px-5 py-2.5 text-[15px] font-semibold text-white transition hover:bg-white/20">
+                      Сообщение
+                    </Link>
+                  </>
                 )}
 
-                <button
-                  type="button"
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20"
-                  aria-label="Ещё"
-                >
-                  <MoreHorizontal className="h-[18px] w-[18px]" />
-                </button>
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setMoreOpen((v) => !v)}
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20"
+                    aria-label="Ещё"
+                  >
+                    <MoreHorizontal className="h-[18px] w-[18px]" />
+                  </button>
+                  {moreOpen && (
+                    <div className="absolute right-0 top-[calc(100%+8px)] z-20 w-48 rounded-xl border border-white/20 bg-black/70 p-2 backdrop-blur">
+                      <button type="button" className="block w-full rounded-lg px-3 py-2 text-left text-sm text-white hover:bg-white/10" onClick={() => {navigator.clipboard.writeText(window.location.href); toast.success('Ссылка скопирована'); setMoreOpen(false);}}>
+                        Копировать ссылку
+                      </button>
+                      <button type="button" className="block w-full rounded-lg px-3 py-2 text-left text-sm text-white hover:bg-white/10" onClick={() => {navigate('/subscriptions');}}>
+                        Поддержать артиста
+                      </button>
+                      {!isOwnProfile && (
+                        <button type="button" className="block w-full rounded-lg px-3 py-2 text-left text-sm text-white hover:bg-white/10" onClick={() => {toast.success('Жалоба отправлена'); setMoreOpen(false);}}>
+                          Пожаловаться
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>

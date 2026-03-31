@@ -15,6 +15,7 @@ from app.models.message import Message
 from app.models.notification import Notification, NotificationType
 from app.models.track import Track
 from app.models.user import User
+from app.schemas.track import TrackPublic
 
 router = APIRouter(prefix="/playlists", tags=["playlists"])
 
@@ -69,27 +70,29 @@ async def get_playlist(playlist_id: int, db: AsyncSession = Depends(get_db)) -> 
     return p
 
 
-@router.get("/{playlist_id}/tracks", response_model=List[dict])
-async def playlist_tracks(playlist_id: int, db: AsyncSession = Depends(get_db)) -> List[dict]:
+@router.get("/{playlist_id}/tracks", response_model=List[TrackPublic])
+async def playlist_tracks(playlist_id: int, db: AsyncSession = Depends(get_db)) -> List[Track]:
+    pr = await db.execute(select(Playlist).where(Playlist.id == playlist_id))
+    p = pr.scalar_one_or_none()
+    if not p or not p.is_public:
+        raise HTTPException(status_code=404, detail="Плейлист не найден")
     r = await db.execute(
-        select(PlaylistTrack, Track)
-        .join(Track, PlaylistTrack.track_id == Track.id)
-        .where(PlaylistTrack.playlist_id == playlist_id)
+        select(Track)
+        .join(PlaylistTrack, PlaylistTrack.track_id == Track.id)
+        .where(PlaylistTrack.playlist_id == playlist_id, Track.is_public.is_(True))
+        .options(selectinload(Track.user))
         .order_by(PlaylistTrack.position)
     )
-    rows = r.all()
-    return [
-        {
-            "position": pt.position,
-            "track": {
-                "id": tr.id,
-                "title": tr.title,
-                "duration_seconds": tr.duration_seconds,
-                "cover_url": tr.cover_url,
-            },
-        }
-        for pt, tr in rows
-    ]
+    return list(r.scalars().all())
+
+
+@router.get("/mine", response_model=List[PlaylistOut])
+async def my_playlists(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> List[Playlist]:
+    r = await db.execute(select(Playlist).where(Playlist.user_id == user.id).order_by(Playlist.created_at.desc()))
+    return list(r.scalars().all())
 
 
 @router.post("/{playlist_id}/tracks/{track_id}")

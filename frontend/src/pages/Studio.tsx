@@ -1,6 +1,8 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { Music, Play, TrendingUp, Upload } from 'lucide-react';
+import { useState } from 'react';
+import toast from 'react-hot-toast';
 
 import { api } from '../api/client';
 import { Button } from '../components/common/Button';
@@ -11,6 +13,9 @@ import type { Track } from '../types';
 
 export function Studio() {
   const user = useAuthStore((s) => s.user);
+  const qc = useQueryClient();
+  const [editingTrack, setEditingTrack] = useState<Track | null>(null);
+  const [title, setTitle] = useState('');
 
   const tracksQ = useQuery({
     queryKey: ['my-tracks'],
@@ -19,14 +24,32 @@ export function Studio() {
   });
 
   const statsQ = useQuery({
-    queryKey: ['my-stats'],
-    queryFn: () => 
-      api.get<{ total: number }>('/api/analytics/plays').then((r) => r.data).catch(() => ({ total: 0 })),
+    queryKey: ['my-basic-stats'],
+    queryFn: () => api.get<{ total: number }>('/api/analytics/my-basic-stats').then((r) => r.data),
     enabled: !!user,
   });
 
   const totalPlays = statsQ.data?.total || 0;
   const totalTracks = tracksQ.data?.length || 0;
+  const updateM = useMutation({
+    mutationFn: async () => {
+      if (!editingTrack) return;
+      await api.patch(`/api/tracks/${editingTrack.id}`, { title });
+    },
+    onSuccess: async () => {
+      toast.success('Трек обновлён');
+      setEditingTrack(null);
+      await qc.invalidateQueries({ queryKey: ['my-tracks'] });
+    },
+  });
+  const deleteM = useMutation({
+    mutationFn: async (id: number) => api.delete(`/api/tracks/${id}`),
+    onSuccess: async () => {
+      toast.success('Трек удалён');
+      await qc.invalidateQueries({ queryKey: ['my-tracks'] });
+      await qc.invalidateQueries({ queryKey: ['my-basic-stats'] });
+    },
+  });
 
   return (
     <div>
@@ -81,7 +104,13 @@ export function Studio() {
         ) : tracksQ.data && tracksQ.data.length > 0 ? (
           <div className="mt-4 grid grid-cols-2 gap-4 md:grid-cols-4 lg:grid-cols-5">
             {tracksQ.data.map((track) => (
-              <TrackCard key={track.id} track={track} queue={tracksQ.data} />
+              <div key={track.id} className="space-y-2">
+                <TrackCard track={track} queue={tracksQ.data} />
+                <div className="flex gap-2">
+                  <Button size="sm" variant="secondary" onClick={() => {setEditingTrack(track); setTitle(track.title);}} className="flex-1">Редактировать</Button>
+                  <Button size="sm" variant="ghost" onClick={() => {if (confirm(`Удалить трек “${track.title}”?`)) deleteM.mutate(track.id);}} className="flex-1">Удалить</Button>
+                </div>
+              </div>
             ))}
           </div>
         ) : (
@@ -97,6 +126,18 @@ export function Studio() {
           </div>
         )}
       </div>
+      {editingTrack && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4" onClick={() => setEditingTrack(null)}>
+          <div className="w-full max-w-md rounded-2xl border border-[var(--border)] bg-[var(--bg-surface)] p-5" onClick={(e) => e.stopPropagation()}>
+            <h3 className="mb-3 font-semibold">Редактировать трек</h3>
+            <input value={title} onChange={(e) => setTitle(e.target.value)} className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] p-3" />
+            <div className="mt-4 flex gap-2">
+              <Button onClick={() => updateM.mutate()} loading={updateM.isPending}>Сохранить</Button>
+              <Button variant="secondary" onClick={() => setEditingTrack(null)}>Отмена</Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -7,6 +7,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_current_user
 from app.models.follow import Follow
+from app.models.like import Like
 from app.models.track import Track
 from app.models.user import User
 from app.schemas.track import TrackPublic
@@ -32,6 +33,22 @@ async def my_tracks(
         .where(Track.user_id == user.id)
         .options(selectinload(Track.user))
         .order_by(Track.created_at.desc())
+    )
+    r = await db.execute(q)
+    return list(r.scalars().all())
+
+
+@router.get("/me/liked-tracks", response_model=List[TrackPublic])
+async def my_liked_tracks(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> List[Track]:
+    q = (
+        select(Track)
+        .join(Like, Like.track_id == Track.id)
+        .where(Like.user_id == user.id, Track.is_public.is_(True))
+        .options(selectinload(Track.user))
+        .order_by(Like.created_at.desc())
     )
     r = await db.execute(q)
     return list(r.scalars().all())

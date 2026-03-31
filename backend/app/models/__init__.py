@@ -1,4 +1,5 @@
 from app.models.comment import Comment
+from app.models.comment_like import CommentLike
 from app.models.follow import Follow
 from app.models.like import Like
 from app.models.message import Message
@@ -23,6 +24,7 @@ __all__ = [
     "Like",
     "Repost",
     "Comment",
+    "CommentLike",
     "Notification",
     "NotificationType",
     "Subscription",
