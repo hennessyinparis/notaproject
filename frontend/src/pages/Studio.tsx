@@ -6,6 +6,7 @@ import toast from 'react-hot-toast';
 
 import { api } from '../api/client';
 import { Button } from '../components/common/Button';
+import { PageShell } from '../components/layout/PageShell';
 import { TrackCard } from '../components/track/TrackCard';
 import { useAuthStore } from '../store/authStore';
 import { formatNumber } from '../utils/format';
@@ -27,6 +28,12 @@ export function Studio() {
     queryKey: ['my-basic-stats'],
     queryFn: () => api.get<{ total: number }>('/api/analytics/my-basic-stats').then((r) => r.data),
     enabled: !!user,
+  });
+  const followersQ = useQuery({
+    queryKey: ['studio-followers-count', user?.username],
+    queryFn: () => api.get<{ count: number }>(`/api/users/${user?.username}/followers/count`).then((r) => r.data),
+    enabled: !!user?.username,
+    refetchInterval: 10000,
   });
 
   const totalPlays = statsQ.data?.total || 0;
@@ -52,43 +59,43 @@ export function Studio() {
   });
 
   return (
-    <div>
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="font-display text-3xl font-bold">Студия</h1>
-          <p className="mt-1 text-[var(--text-secondary)]">Управление треками и статистика</p>
-        </div>
-        <Link to="/upload">
+    <PageShell
+      title="Студия"
+      description="Статистика, релизы и загрузка новых треков"
+      icon={<Music className="h-7 w-7 text-[var(--primary)]" strokeWidth={2} aria-hidden />}
+      actions={
+        <Link to="/upload" className="shrink-0">
           <Button>
             <Upload className="mr-2 h-4 w-4" />
             Загрузить трек
           </Button>
         </Link>
-      </div>
-
-      <div className="mt-8 grid grid-cols-2 gap-4 md:grid-cols-4">
-        <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-4">
+      }
+    >
+      <div className="mx-auto max-w-6xl space-y-10">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4">
+        <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-surface)] p-4 shadow-[var(--shadow-hover)] ring-1 ring-black/[0.04] dark:ring-white/[0.06]">
           <div className="flex items-center gap-2 text-[var(--text-muted)]">
             <Music className="h-4 w-4" />
             <span className="text-sm">Треков</span>
           </div>
           <p className="mt-1 text-2xl font-bold">{totalTracks}</p>
         </div>
-        <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-4">
+        <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-surface)] p-4 shadow-[var(--shadow-hover)] ring-1 ring-black/[0.04] dark:ring-white/[0.06]">
           <div className="flex items-center gap-2 text-[var(--text-muted)]">
             <Play className="h-4 w-4" />
             <span className="text-sm">Прослушиваний</span>
           </div>
           <p className="mt-1 text-2xl font-bold">{formatNumber(totalPlays)}</p>
         </div>
-        <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-4">
+        <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-surface)] p-4 shadow-[var(--shadow-hover)] ring-1 ring-black/[0.04] dark:ring-white/[0.06]">
           <div className="flex items-center gap-2 text-[var(--text-muted)]">
             <TrendingUp className="h-4 w-4" />
             <span className="text-sm">Подписчиков</span>
           </div>
-          <p className="mt-1 text-2xl font-bold">0</p>
+          <p className="mt-1 text-2xl font-bold">{followersQ.data?.count ?? 0}</p>
         </div>
-        <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-4">
+        <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-surface)] p-4 shadow-[var(--shadow-hover)] ring-1 ring-black/[0.04] dark:ring-white/[0.06]">
           <div className="flex items-center gap-2 text-[var(--text-muted)]">
             <span className="text-sm">Доход</span>
           </div>
@@ -96,9 +103,9 @@ export function Studio() {
         </div>
       </div>
 
-      <div className="mt-10">
-        <h2 className="font-display text-xl font-bold">Мои треки</h2>
-        
+      <div>
+        <h2 className="font-display text-xl font-bold text-[var(--text-primary)]">Мои треки</h2>
+
         {tracksQ.isLoading ? (
           <div className="mt-4 text-[var(--text-muted)]">Загрузка...</div>
         ) : tracksQ.data && tracksQ.data.length > 0 ? (
@@ -138,6 +145,7 @@ export function Studio() {
           </div>
         </div>
       )}
-    </div>
+      </div>
+    </PageShell>
   );
 }

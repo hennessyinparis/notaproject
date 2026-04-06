@@ -17,6 +17,7 @@ from app.models.user import User
 from app.schemas.track import TrackCreate, TrackPlayReport, TrackPublic, TrackUpdate
 from app.services.audio_meta import get_duration_seconds, waveform_for_db
 from app.services.media import resolve_media_path, save_cover, save_uploaded_track
+from app.services.track_engagement import enrich_tracks_public
 
 router = APIRouter(prefix="/tracks", tags=["tracks"])
 
@@ -59,14 +60,15 @@ async def get_track(
     track_id: int,
     db: AsyncSession = Depends(get_db),
     user: Optional[User] = Depends(get_current_user_optional),
-) -> Track:
+) -> TrackPublic:
     r = await db.execute(select(Track).options(selectinload(Track.user)).where(Track.id == track_id))
     t = r.scalar_one_or_none()
     if not t:
         raise HTTPException(status_code=404, detail="Трек не найден")
     if not t.is_public and (user is None or user.id != t.user_id):
         raise HTTPException(status_code=404, detail="Трек не найден")
-    return t
+    enriched = await enrich_tracks_public(db, [t], user.id if user else None)
+    return enriched[0]
 
 
 @router.post("", response_model=TrackPublic, status_code=status.HTTP_201_CREATED)
@@ -346,3 +348,37 @@ async def unrepost_track(
         t.reposts_count = max(0, t.reposts_count - 1)
         await db.flush()
     return {"reposted": False, "reposts_count": t.reposts_count}
+
+
+@router.get("/{track_id}/liked")
+async def track_liked_status(
+    track_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    from app.models.like import Like
+
+    t = (await db.execute(select(Track).where(Track.id == track_id))).scalar_one_or_none()
+    if not t:
+        raise HTTPException(status_code=404, detail="Трек не найден")
+    liked = (
+        await db.execute(select(Like).where(Like.user_id == user.id, Like.track_id == track_id))
+    ).scalar_one_or_none() is not None
+    return {"liked": liked, "likes_count": t.likes_count}
+
+
+@router.get("/{track_id}/reposted")
+async def track_reposted_status(
+    track_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    from app.models.repost import Repost
+
+    t = (await db.execute(select(Track).where(Track.id == track_id))).scalar_one_or_none()
+    if not t:
+        raise HTTPException(status_code=404, detail="Трек не найден")
+    reposted = (
+        await db.execute(select(Repost).where(Repost.user_id == user.id, Repost.track_id == track_id))
+    ).scalar_one_or_none() is not None
+    return {"reposted": reposted}

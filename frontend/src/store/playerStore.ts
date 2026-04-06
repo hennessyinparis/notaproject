@@ -1,4 +1,4 @@
-import { Howl } from 'howler';
+import { Howl, Howler } from 'howler';
 import { create } from 'zustand';
 
 import { api } from '../api/client';
@@ -13,6 +13,12 @@ export const RATES = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
 function streamUrl(trackId: number) {
   const base = import.meta.env.VITE_API_URL || '';
   return `${base}/api/tracks/${trackId}/stream`;
+}
+
+function resumeAudioContext(): Promise<void> {
+  const ctx = Howler.ctx;
+  if (!ctx) return Promise.resolve();
+  return ctx.state === 'suspended' ? ctx.resume() : Promise.resolve();
 }
 
 interface PlayerState {
@@ -69,11 +75,12 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
   playTrack: (t, q) => {
     const state = get();
-    state.howl?.unload();
+    const prev = state.howl;
+    set({ howl: null });
+    prev?.unload();
     const queue = q?.length ? q : [t];
     const idx = queue.findIndex((x) => x.id === t.id);
     const token = useAuthStore.getState().accessToken;
-    // html5: false to ensure pitch changes with playback rate
     const howl = new Howl({
       src: [streamUrl(t.id)],
       html5: false,
@@ -82,34 +89,48 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       rate: state.rate,
       xhr: token ? { headers: { Authorization: `Bearer ${token}` } } : undefined,
       onload: function () {
+        if (get().howl !== howl) return;
         set({ duration: howl.duration() || 0 });
       },
       onend: () => {
+        if (get().howl !== howl) return;
         const s = get();
         if (s.repeat === 'one') {
           howl.seek(0);
-          howl.play();
+          void resumeAudioContext().then(() => {
+            if (get().howl !== howl) return;
+            howl.play();
+          });
           return;
         }
         get().next();
       },
     });
     howl.on('play', () => {
+      if (get().howl !== howl) return;
       set({ isPlaying: true });
-      // Setup EQ if enabled
       if (useEqStore.getState().enabled) {
         useEqStore.getState().setupForHowl(howl);
       }
     });
-    howl.on('pause', () => set({ isPlaying: false }));
-    howl.on('stop', () => set({ isPlaying: false }));
-    howl.play();
+    howl.on('pause', () => {
+      if (get().howl !== howl) return;
+      set({ isPlaying: false });
+    });
+    howl.on('stop', () => {
+      if (get().howl !== howl) return;
+      set({ isPlaying: false });
+    });
     set({
       currentTrack: t,
       queue,
       currentIndex: idx >= 0 ? idx : 0,
       howl,
       position: 0,
+    });
+    void resumeAudioContext().then(() => {
+      if (get().howl !== howl) return;
+      howl.play();
     });
     void api.post(`/api/tracks/${t.id}/play`, {
       listened_seconds: 0,
@@ -121,15 +142,22 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   toggle: () => {
     const h = get().howl;
     if (!h) return;
-    if (h.playing()) h.pause();
-    else h.play();
+    if (h.playing()) {
+      h.pause();
+      return;
+    }
+    void resumeAudioContext().then(() => {
+      if (get().howl !== h) return;
+      h.play();
+    });
   },
 
   pause: () => get().howl?.pause(),
 
   stop: () => {
-    get().howl?.stop();
-    get().howl?.unload();
+    const h = get().howl;
+    h?.stop();
+    h?.unload();
     set({
       currentTrack: null,
       howl: null,

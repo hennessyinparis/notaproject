@@ -1,10 +1,12 @@
 import { motion, AnimatePresence } from 'framer-motion';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Maximize2,
   Minimize2,
   Pause,
   Play,
   Repeat,
+  Repeat2,
   Shuffle,
   SkipBack,
   SkipForward,
@@ -13,13 +15,21 @@ import {
   X,
   ListMusic,
   SlidersHorizontal,
+  Heart,
+  MessageCircle,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { createPortal } from 'react-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import toast from 'react-hot-toast';
 
+import { api } from '../../api/client';
 import { RATES, usePlayerStore } from '../../store/playerStore';
 import { useEqStore } from '../../store/eqStore';
+import { useAuthStore } from '../../store/authStore';
+import { goToLogin } from '../../utils/authNavigation';
 import { formatDuration } from '../../utils/format';
+import { AddToPlaylistModal } from '../track/AddToPlaylistModal';
 import { Equalizer } from './Equalizer';
 import { Waveform } from './Waveform';
 
@@ -61,6 +71,96 @@ export function GlobalPlayer() {
   const eqEnabled = useEqStore((s) => s.enabled);
   const [showQueue, setShowQueue] = useState(false);
   const [showEq, setShowEq] = useState(false);
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const accessToken = useAuthStore((s) => s.accessToken);
+  const [isLiked, setIsLiked] = useState(false);
+  const [isReposted, setIsReposted] = useState(false);
+  const [showSend, setShowSend] = useState(false);
+  const [playlistOpen, setPlaylistOpen] = useState(false);
+  const [searchUser, setSearchUser] = useState('');
+
+  useEffect(() => {
+    if (!currentTrack) {
+      setShowSend(false);
+      setPlaylistOpen(false);
+      setSearchUser('');
+      return;
+    }
+    setIsLiked(currentTrack.is_liked ?? false);
+    setIsReposted(currentTrack.is_reposted ?? false);
+  }, [currentTrack?.id, currentTrack?.is_liked, currentTrack?.is_reposted]);
+
+  const likeMutation = useMutation({
+    mutationFn: async () => {
+      const t = usePlayerStore.getState().currentTrack;
+      if (!t?.id) throw new Error('no track');
+      if (isLiked) {
+        await api.delete(`/api/tracks/${t.id}/like`);
+        return false;
+      }
+      await api.post(`/api/tracks/${t.id}/like`);
+      return true;
+    },
+    onSuccess: async (liked) => {
+      setIsLiked(liked);
+      const id = usePlayerStore.getState().currentTrack?.id;
+      if (id) await queryClient.invalidateQueries({ queryKey: ['track', String(id)] });
+      await queryClient.invalidateQueries({ queryKey: ['library-liked-tracks'] });
+      await queryClient.invalidateQueries({ queryKey: ['feed'] });
+      await queryClient.invalidateQueries({ queryKey: ['user-tracks'] });
+      toast.success(liked ? 'Лайк добавлен' : 'Лайк убран');
+    },
+    onError: () => toast.error('Ошибка'),
+  });
+
+  const repostMutation = useMutation({
+    mutationFn: async () => {
+      const t = usePlayerStore.getState().currentTrack;
+      if (!t?.id) throw new Error('no track');
+      const res = isReposted
+        ? await api.delete<{ reposted: boolean }>(`/api/tracks/${t.id}/repost`)
+        : await api.post<{ reposted: boolean }>(`/api/tracks/${t.id}/repost`);
+      return res.data.reposted;
+    },
+    onSuccess: async (reposted) => {
+      setIsReposted(reposted);
+      const id = usePlayerStore.getState().currentTrack?.id;
+      if (id) await queryClient.invalidateQueries({ queryKey: ['track', String(id)] });
+      await queryClient.invalidateQueries({ queryKey: ['feed'] });
+      await queryClient.invalidateQueries({ queryKey: ['user-tracks'] });
+      toast.success(reposted ? 'Трек репостнут' : 'Репост убран');
+    },
+    onError: () => toast.error('Ошибка'),
+  });
+
+  const usersQ = useQuery({
+    queryKey: ['player-share-users', searchUser],
+    queryFn: () =>
+      api
+        .get<{ users: Array<{ username: string; display_name: string; avatar_url: string | null }> }>(
+          `/api/search?q=${encodeURIComponent(searchUser)}`
+        )
+        .then((r) => r.data.users ?? []),
+    enabled: showSend && searchUser.trim().length > 1,
+  });
+
+  const shareTrackTo = async (usernameTo: string) => {
+    const t = usePlayerStore.getState().currentTrack;
+    if (!t?.id) return;
+    await api.post(`/api/messages/${usernameTo}`, { text: '', track_id: t.id });
+    toast.success('Трек отправлен');
+    setShowSend(false);
+    setSearchUser('');
+  };
+
+  const requireAuth = (fn: () => void) => {
+    if (!accessToken) {
+      goToLogin(navigate);
+      return;
+    }
+    fn();
+  };
 
   useEffect(() => {
     if (!isPlaying) return;
@@ -76,6 +176,17 @@ export function GlobalPlayer() {
 
   if (!currentTrack) return null;
 
+  const playlistModal = (
+    <AddToPlaylistModal
+      trackId={currentTrack.id}
+      open={playlistOpen}
+      onClose={() => setPlaylistOpen(false)}
+    />
+  );
+
+  const actionIconCls =
+    'rounded-lg p-1.5 text-[var(--text-muted)] transition hover:bg-[var(--bg-elevated)] hover:text-[var(--text-primary)]';
+
   const cycleRepeat = () => {
     const order: Array<'off' | 'one' | 'all'> = ['off', 'all', 'one'];
     const i = order.indexOf(repeat);
@@ -85,6 +196,63 @@ export function GlobalPlayer() {
   const base = import.meta.env.VITE_API_URL || '';
   const cover = currentTrack.cover_url ? `${base}${currentTrack.cover_url}` : null;
   const dur = duration || currentTrack.duration_seconds;
+
+  const sendModal =
+    showSend &&
+    createPortal(
+      <div
+        className="fixed inset-0 z-[260] flex items-center justify-center bg-black/45 p-4"
+        role="presentation"
+        onMouseDown={(e) => {
+          if (e.target === e.currentTarget) {
+            setShowSend(false);
+            setSearchUser('');
+          }
+        }}
+      >
+        <div className="w-full max-w-md rounded-2xl border border-[var(--border)] bg-[var(--bg-surface)] p-4 shadow-[var(--shadow-card)]">
+          <h3 className="m-0 text-base font-semibold text-[var(--text-primary)]">Отправить трек</h3>
+          <input
+            className="mt-3 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-2.5 text-sm text-[var(--text-primary)] outline-none focus:ring-2 focus:ring-[var(--primary)]"
+            placeholder="Найти пользователя…"
+            value={searchUser}
+            onChange={(e) => setSearchUser(e.target.value)}
+          />
+          <div className="mt-3 max-h-60 space-y-2 overflow-y-auto">
+            {usersQ.data?.map((u) => (
+              <button
+                key={u.username}
+                type="button"
+                className="flex w-full items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-2 text-left text-sm text-[var(--text-primary)] transition hover:bg-[var(--bg-base)]"
+                onClick={() => shareTrackTo(u.username)}
+              >
+                <div className="h-9 w-9 shrink-0 overflow-hidden rounded-full bg-[var(--bg-surface)]">
+                  {u.avatar_url ? (
+                    <img
+                      src={u.avatar_url.startsWith('http') ? u.avatar_url : `${base}${u.avatar_url}`}
+                      alt=""
+                      className="h-full w-full object-cover"
+                    />
+                  ) : null}
+                </div>
+                <span className="min-w-0 truncate font-medium">{u.display_name}</span>
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            className="mt-3 text-sm text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+            onClick={() => {
+              setShowSend(false);
+              setSearchUser('');
+            }}
+          >
+            Закрыть
+          </button>
+        </div>
+      </div>,
+      document.body
+    );
 
   const controls = (
     <>
@@ -141,42 +309,92 @@ export function GlobalPlayer() {
       initial={{ y: 100, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
     >
-      <div className="mx-auto flex max-w-5xl flex-col gap-1 px-4 py-2 md:flex-row md:items-center md:gap-0">
-        <div className="flex min-w-0 flex-[0_0_180px] items-center gap-2 md:flex-[0_0_240px]">
+      <div className="mx-auto grid max-w-6xl grid-cols-1 items-center gap-3 px-4 py-2.5 md:grid-cols-[240px_1fr_auto] md:gap-4">
+        <div className="flex min-w-0 flex-[0_0_180px] items-center gap-3 md:flex-[0_0_260px]">
           <motion.div
             animate={{ scale: isPlaying ? [1, 1.02, 1] : 1 }}
             transition={{ repeat: Infinity, duration: 2 }}
-            className="h-10 w-10 shrink-0 overflow-hidden rounded-lg shadow-md md:h-12 md:w-12"
+            className="h-11 w-11 shrink-0 overflow-hidden rounded-xl shadow-md ring-1 ring-black/5 dark:ring-white/10 md:h-[52px] md:w-[52px]"
           >
             {cover ? (
-              <img src={cover} alt="" className="h-full w-full object-cover" />
+              <img src={cover} alt="" className="h-full w-full object-cover" draggable={false} />
             ) : (
               <div className="h-full w-full" style={{ background: stringToColor(currentTrack.title) }} />
             )}
           </motion.div>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <Link
               to={`/track/${currentTrack.id}`}
-              className="block truncate text-sm font-semibold text-[var(--text-primary)] hover:text-[var(--primary)]"
+              className="block truncate text-[15px] font-semibold leading-tight tracking-tight text-[var(--text-primary)] hover:text-[var(--primary)]"
             >
               {currentTrack.title}
             </Link>
             <Link
               to={`/artist/${currentTrack.user?.username}`}
-              className="block truncate text-xs text-[var(--text-secondary)] hover:text-[var(--primary)]"
+              className="mt-0.5 block truncate text-xs font-medium text-[var(--text-muted)] hover:text-[var(--primary)]"
             >
               {currentTrack.user?.display_name ?? 'Артист'}
             </Link>
+            <div className="mt-1 flex items-center gap-0.5">
+              <button
+                type="button"
+                className={actionIconCls}
+                aria-label="Нравится"
+                disabled={likeMutation.isPending}
+                onClick={(e) => {
+                  e.preventDefault();
+                  requireAuth(() => likeMutation.mutate());
+                }}
+              >
+                <Heart
+                  className={`h-4 w-4 ${isLiked ? 'fill-[var(--primary)] text-[var(--primary)]' : ''}`}
+                />
+              </button>
+              <button
+                type="button"
+                className={`${actionIconCls} ${isReposted ? 'text-[var(--primary)]' : ''}`}
+                aria-label="Репост"
+                disabled={repostMutation.isPending}
+                onClick={(e) => {
+                  e.preventDefault();
+                  requireAuth(() => repostMutation.mutate());
+                }}
+              >
+                <Repeat2 className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                className={actionIconCls}
+                aria-label="В плейлист"
+                onClick={(e) => {
+                  e.preventDefault();
+                  requireAuth(() => setPlaylistOpen(true));
+                }}
+              >
+                <ListMusic className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                className={actionIconCls}
+                aria-label="Отправить"
+                onClick={(e) => {
+                  e.preventDefault();
+                  requireAuth(() => setShowSend(true));
+                }}
+              >
+                <MessageCircle className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         </div>
 
-        <div className="flex flex-1 flex-col gap-0.5 md:px-6">{controls}</div>
+        <div className="flex flex-col gap-1 md:px-4">{controls}</div>
 
-        <div className="flex flex-[0_0_auto] items-center justify-end gap-2 md:gap-3">
+        <div className="flex flex-[0_0_auto] items-center justify-end gap-2 md:gap-2.5">
           <select
             value={rate}
             onChange={(e) => setRate(Number(e.target.value))}
-            className="rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] px-1.5 py-1 text-xs text-[var(--text-primary)] md:px-2"
+            className="rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] px-2 py-1 text-xs text-[var(--text-primary)]"
             aria-label="Скорость"
           >
             {RATES.map((r) => (
@@ -266,6 +484,9 @@ export function GlobalPlayer() {
 
   if (fullscreen) {
     return (
+      <>
+        {playlistModal}
+        {sendModal}
       <div className="fixed inset-0 z-[100] flex flex-col">
         <div
           className="absolute inset-0 bg-cover bg-center opacity-20"
@@ -296,15 +517,60 @@ export function GlobalPlayer() {
               <div className="h-full w-full" style={{ background: stringToColor(currentTrack.title) }} />
             )}
           </motion.div>
-          <div className="text-center">
-            <h2 className="font-display text-2xl font-bold md:text-3xl">{currentTrack.title}</h2>
-            <p className="mt-1 text-white/60">{currentTrack.user?.display_name}</p>
+            <div className="text-center">
+              <h2 className="mx-auto max-w-xl font-display text-2xl font-bold leading-tight tracking-tight md:text-3xl">
+                {currentTrack.title}
+              </h2>
+              <p className="mt-2 text-sm font-medium text-white/65 md:text-base">{currentTrack.user?.display_name}</p>
+            <div className="mt-3 flex items-center justify-center gap-1">
+              <button
+                type="button"
+                className="rounded-full p-2 text-white/70 transition hover:bg-white/10 hover:text-white"
+                aria-label="Нравится"
+                disabled={likeMutation.isPending}
+                onClick={() => requireAuth(() => likeMutation.mutate())}
+              >
+                <Heart className={`h-5 w-5 ${isLiked ? 'fill-white text-white' : ''}`} />
+              </button>
+              <button
+                type="button"
+                className={`rounded-full p-2 text-white/70 transition hover:bg-white/10 hover:text-white ${isReposted ? 'text-white' : ''}`}
+                aria-label="Репост"
+                disabled={repostMutation.isPending}
+                onClick={() => requireAuth(() => repostMutation.mutate())}
+              >
+                <Repeat2 className="h-5 w-5" />
+              </button>
+              <button
+                type="button"
+                className="rounded-full p-2 text-white/70 transition hover:bg-white/10 hover:text-white"
+                aria-label="В плейлист"
+                onClick={() => requireAuth(() => setPlaylistOpen(true))}
+              >
+                <ListMusic className="h-5 w-5" />
+              </button>
+              <button
+                type="button"
+                className="rounded-full p-2 text-white/70 transition hover:bg-white/10 hover:text-white"
+                aria-label="Отправить"
+                onClick={() => requireAuth(() => setShowSend(true))}
+              >
+                <MessageCircle className="h-5 w-5" />
+              </button>
+            </div>
           </div>
           <div className="w-full max-w-2xl px-4">{controls}</div>
         </div>
       </div>
+      </>
     );
   }
 
-  return <div className="fixed bottom-0 left-0 right-0 z-50">{bar}</div>;
+  return (
+    <>
+      {playlistModal}
+      {sendModal}
+      <div className="fixed bottom-0 left-0 right-0 z-50">{bar}</div>
+    </>
+  );
 }

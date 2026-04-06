@@ -1,12 +1,7 @@
-import { useQuery } from '@tanstack/react-query';
-import { useEffect } from 'react';
 import { Link, Outlet } from 'react-router-dom';
 import { Music } from 'lucide-react';
-
-import { api, setAuthHeader } from './api/client';
 import { GlobalPlayer } from './components/player/GlobalPlayer';
 import { MobileBottomNav, Navbar } from './components/layout/Navbar';
-import { useAuthStore } from './store/authStore';
 import { usePlayerStore } from './store/playerStore';
 
 function Footer() {
@@ -49,33 +44,7 @@ function Footer() {
 }
 
 function App() {
-  const accessToken = useAuthStore((s) => s.accessToken);
-  const setTokens = useAuthStore((s) => s.setTokens);
-  const setUser = useAuthStore((s) => s.setUser);
   const hasPlayer = !!usePlayerStore((s) => s.currentTrack);
-
-  useEffect(() => {
-    setAuthHeader(accessToken);
-  }, [accessToken]);
-
-  const meQ = useQuery({
-    queryKey: ['me', accessToken],
-    queryFn: async () => {
-      const { data } = await api.get('/api/users/me');
-      setUser(data);
-      return data;
-    },
-    enabled: !!accessToken,
-    retry: false,
-  });
-
-  useEffect(() => {
-    if (!accessToken) return;
-    if (!meQ.isError) return;
-    // Токен протух/битый: очищаем сессию, чтобы кнопка "Войти" работала предсказуемо.
-    setTokens(null, null);
-    setUser(null);
-  }, [accessToken, meQ.isError, setTokens, setUser]);
 
   return (
     <div className="flex min-h-screen flex-col bg-[var(--bg-base)]">

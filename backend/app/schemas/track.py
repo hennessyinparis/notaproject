@@ -69,6 +69,8 @@ class TrackPublic(BaseModel):
     created_at: datetime
     published_at: Optional[datetime] = None
     user: Optional[TrackArtistBrief] = None
+    is_liked: bool = False
+    is_reposted: bool = False
 
     model_config = {"from_attributes": True}
 

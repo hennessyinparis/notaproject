@@ -150,3 +150,14 @@
 - Redis/Celery не обязательны для базового запуска API и UI
 - Порт 5432 может быть занят (используется 5433)
 - FATAL "database nota_user does not exist" — это сообщение от healthcheck, не влияет на работу
+
+## ✅ Финальный аудит-допроход (01.04.2026)
+
+- Feed переведён на `TrackRow`-список, добавлена пагинация «Загрузить ещё»
+- PlaylistPage переработан: шапка, действия (играть/перемешать), треклист через `TrackRow`
+- Settings расширен: управление профилем + разделы безопасности и подписки
+- TrackCard доработан под Firefox hover и контекстное меню действий
+- Backend: добавлены endpoint'ы `GET /api/tracks/{id}/liked` и `GET /api/tracks/{id}/reposted`
+- Backend: добавлены endpoint'ы `GET /api/users/{username}/followers`, `.../following`, `.../playlists`
+- Backend: добавлен `GET /api/playlists?mine=true` (сохранив `GET /api/playlists/mine`)
+- Повторно проверены сборки: frontend build и backend compile проходят

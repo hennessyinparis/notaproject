@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import or_, select
 from sqlalchemy.exc import ProgrammingError, OperationalError
@@ -16,6 +16,30 @@ from app.models.user import ArtistSubscriptionType, User, UserSubscriptionType
 from app.schemas.user import TokenPair, UserCreate, UserPublic
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+@router.get("/username-available")
+async def username_available(
+    username: str = Query(..., min_length=3, max_length=50), db: AsyncSession = Depends(get_db)
+) -> dict:
+    """Проверка свободности логина до отправки формы (как на SoundCloud)."""
+    u = username.strip()
+    if len(u) < 3:
+        return {"available": False}
+    try:
+        r = await db.execute(select(User.id).where(User.username == u))
+    except ProgrammingError as e:
+        if (h := _db_schema_http(e)):
+            raise h from e
+        raise
+    except OperationalError as e:
+        raise HTTPException(
+            status_code=503,
+            detail="Не удаётся подключиться к PostgreSQL. Проверьте DATABASE_URL в .env.",
+        ) from e
+    taken = r.scalar_one_or_none() is not None
+    return {"available": not taken}
+
 
 SCHEMA_HINT = (
     "База не совпадает с текущим кодом. В каталоге backend выполните: alembic upgrade head"
@@ -119,6 +143,8 @@ async def refresh_tokens(body: RefreshBody, db: AsyncSession = Depends(get_db)) 
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=401, detail="Пользователь не найден")
+    if user.is_blocked:
+        raise HTTPException(status_code=403, detail="Аккаунт заблокирован администратором")
     access = create_access_token({"sub": str(user.id)})
     refresh = create_refresh_token({"sub": str(user.id)})
     return TokenPair(access_token=access, refresh_token=refresh)

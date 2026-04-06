@@ -30,6 +30,9 @@ export interface Track {
   created_at: string;
   published_at: string | null;
   user?: UserBrief;
+  /** Заполняется API для авторизованного пользователя в списках треков */
+  is_liked?: boolean;
+  is_reposted?: boolean;
 }
 
 export interface AuthUser {

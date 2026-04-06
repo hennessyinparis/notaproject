@@ -1,11 +1,14 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import './api/authInterceptor';
+import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import { StrictMode, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BrowserRouter, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 
 import App from './App';
 import './index.css';
+import { AuthBootstrap } from './components/AuthBootstrap';
+import { AdminLayout } from './components/admin/AdminLayout';
 import { PrivateRoute, ProRoute } from './components/routing/PrivateRoute';
 import { AdminRoute } from './components/routing/AdminRoute';
 import { useThemeStore } from './store/themeStore';
@@ -30,7 +33,10 @@ import { Register } from './pages/Register';
 import { ForArtists } from './pages/ForArtists';
 import { Feed } from './pages/Feed';
 import { Messages } from './pages/Messages';
-import { AdminPage } from './pages/Admin';
+import { AdminCommentsPage } from './pages/admin/AdminCommentsPage';
+import { AdminDashboard } from './pages/admin/AdminDashboard';
+import { AdminTracksPage } from './pages/admin/AdminTracksPage';
+import { AdminUsersPage } from './pages/admin/AdminUsersPage';
 
 const qc = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 60_000 } },
@@ -44,13 +50,20 @@ function ThemeInit() {
 }
 
 function AuthHydrate() {
+  const queryClient = useQueryClient();
   useEffect(() => {
-    useAuthStore.persist.onFinishHydration(() => {
+    const sync = () => {
       setAuthHeader(useAuthStore.getState().accessToken);
-    });
-    const t = useAuthStore.getState().accessToken;
-    if (t) setAuthHeader(t);
-  }, []);
+      void queryClient.invalidateQueries({ queryKey: ['user-tracks'] });
+      void queryClient.invalidateQueries({ queryKey: ['tracks'] });
+      void queryClient.invalidateQueries({ queryKey: ['library-liked-tracks'] });
+      void queryClient.invalidateQueries({ queryKey: ['feed'] });
+    };
+    useAuthStore.persist.onFinishHydration(sync);
+    if (useAuthStore.persist.hasHydrated()) {
+      sync();
+    }
+  }, [queryClient]);
   return null;
 }
 
@@ -60,7 +73,22 @@ createRoot(document.getElementById('root')!).render(
       <BrowserRouter>
         <ThemeInit />
         <AuthHydrate />
+        <AuthBootstrap />
         <Routes>
+          <Route
+            path="/admin"
+            element={
+              <AdminRoute>
+                <AdminLayout />
+              </AdminRoute>
+            }
+          >
+            <Route index element={<Navigate to="dashboard" replace />} />
+            <Route path="dashboard" element={<AdminDashboard />} />
+            <Route path="users" element={<AdminUsersPage />} />
+            <Route path="tracks" element={<AdminTracksPage />} />
+            <Route path="comments" element={<AdminCommentsPage />} />
+          </Route>
           <Route element={<App />}>
             <Route index element={<Home />} />
             <Route path="discover" element={<Discover />} />
@@ -145,14 +173,6 @@ createRoot(document.getElementById('root')!).render(
             />
             <Route path="login" element={<Login />} />
             <Route path="register" element={<Register />} />
-            <Route
-              path="admin"
-              element={
-                <AdminRoute>
-                  <AdminPage />
-                </AdminRoute>
-              }
-            />
           </Route>
         </Routes>
         <Toaster toastOptions={{ style: { background: 'var(--bg-elevated)', color: 'var(--text-primary)' } }} />

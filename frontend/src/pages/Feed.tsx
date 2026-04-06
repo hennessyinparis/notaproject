@@ -1,14 +1,21 @@
-import { useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery } from '@tanstack/react-query';
 
 import { api } from '../api/client';
+import { Button } from '../components/common/Button';
 import { TrackCard } from '../components/track/TrackCard';
 import type { Track } from '../types';
 
 export function Feed() {
-  const { data } = useQuery({
+  const feedQ = useInfiniteQuery({
     queryKey: ['feed'],
-    queryFn: () => api.get<Track[]>('/api/feed').then((r) => r.data),
+    initialPageParam: null as number | null,
+    queryFn: ({ pageParam }) =>
+      api
+        .get<Track[]>(`/api/feed${pageParam ? `?cursor=${pageParam}` : ''}`)
+        .then((r) => r.data),
+    getNextPageParam: (lastPage) => (lastPage.length ? lastPage[lastPage.length - 1].id : undefined),
   });
+  const data = feedQ.data?.pages.flatMap((p) => p) ?? [];
 
   return (
     <div>
@@ -18,6 +25,15 @@ export function Feed() {
         {data?.map((t) => (
           <TrackCard key={t.id} track={t} queue={data} />
         ))}
+      </div>
+      <div className="mt-6 flex justify-center">
+        <Button
+          variant="secondary"
+          onClick={() => feedQ.fetchNextPage()}
+          disabled={!feedQ.hasNextPage || feedQ.isFetchingNextPage}
+        >
+          {feedQ.isFetchingNextPage ? 'Загрузка...' : feedQ.hasNextPage ? 'Загрузить ещё' : 'Больше нет треков'}
+        </Button>
       </div>
     </div>
   );

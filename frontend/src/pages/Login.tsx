@@ -6,6 +6,7 @@ import toast from 'react-hot-toast';
 import { api, setAuthHeader } from '../api/client';
 import { Button } from '../components/common/Button';
 import { useAuthStore } from '../store/authStore';
+import type { AuthUser } from '../types';
 
 function getErrorMessage(error: unknown, fallback: string) {
   const err = error as { response?: { data?: { detail?: string; message?: string } }; message?: string };
@@ -30,16 +31,21 @@ export function Login() {
       const { access_token, refresh_token } = res.data;
       setTokens(access_token, refresh_token);
       setAuthHeader(access_token);
-      const me = await api.get('/api/users/me');
+      const me = await api.get<AuthUser>('/api/users/me');
       setUser(me.data);
       toast.success('С возвращением!');
-      navigate(from, { replace: true });
+      if (me.data.is_admin) {
+        navigate('/admin/dashboard', { replace: true });
+      } else {
+        const dest = from.startsWith('/admin') ? '/' : from;
+        navigate(dest, { replace: true });
+      }
     },
     onError: (error) => toast.error(getErrorMessage(error, 'Ошибка входа')),
   });
 
   if (accessToken && user) {
-    return <Navigate to="/" replace />;
+    return <Navigate to={user.is_admin ? '/admin/dashboard' : '/'} replace />;
   }
 
   return (

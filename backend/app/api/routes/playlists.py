@@ -1,13 +1,13 @@
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, get_current_user_optional
 from app.core.database import get_db
 from app.models.playlist import Playlist, PlaylistTrack
 from app.models.playlist import PlaylistCollaborator
@@ -61,21 +61,93 @@ async def create_playlist(
     return p
 
 
+@router.get("/mine", response_model=List[PlaylistOut])
+async def my_playlists(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> List[PlaylistOut]:
+    r = await db.execute(select(Playlist).where(Playlist.user_id == user.id).order_by(Playlist.created_at.desc()))
+    playlists = list(r.scalars().all())
+    out: List[PlaylistOut] = []
+    for p in playlists:
+        po = PlaylistOut.model_validate(p)
+        if not po.cover_url:
+            fc = (
+                await db.execute(
+                    select(Track.cover_url)
+                    .join(PlaylistTrack, PlaylistTrack.track_id == Track.id)
+                    .where(
+                        PlaylistTrack.playlist_id == p.id,
+                        Track.is_public.is_(True),
+                        Track.cover_url.isnot(None),
+                    )
+                    .order_by(PlaylistTrack.position)
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+            if fc:
+                po = po.model_copy(update={"cover_url": fc})
+        out.append(po)
+    return out
+
+
 @router.get("/{playlist_id}", response_model=PlaylistOut)
-async def get_playlist(playlist_id: int, db: AsyncSession = Depends(get_db)) -> Playlist:
+async def get_playlist(
+    playlist_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user_optional),
+) -> Playlist:
     r = await db.execute(select(Playlist).where(Playlist.id == playlist_id))
     p = r.scalar_one_or_none()
-    if not p or not p.is_public:
+    if not p:
         raise HTTPException(status_code=404, detail="Плейлист не найден")
+    if not p.is_public:
+        can_read = False
+        if user:
+            if p.user_id == user.id:
+                can_read = True
+            else:
+                row = (
+                    await db.execute(
+                        select(PlaylistCollaborator).where(
+                            PlaylistCollaborator.playlist_id == playlist_id,
+                            PlaylistCollaborator.user_id == user.id,
+                        )
+                    )
+                ).scalar_one_or_none()
+                can_read = row is not None
+        if not can_read:
+            raise HTTPException(status_code=404, detail="Плейлист не найден")
     return p
 
 
 @router.get("/{playlist_id}/tracks", response_model=List[TrackPublic])
-async def playlist_tracks(playlist_id: int, db: AsyncSession = Depends(get_db)) -> List[Track]:
+async def playlist_tracks(
+    playlist_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user_optional),
+) -> List[Track]:
     pr = await db.execute(select(Playlist).where(Playlist.id == playlist_id))
     p = pr.scalar_one_or_none()
-    if not p or not p.is_public:
+    if not p:
         raise HTTPException(status_code=404, detail="Плейлист не найден")
+    if not p.is_public:
+        can_read = False
+        if user:
+            if p.user_id == user.id:
+                can_read = True
+            else:
+                row = (
+                    await db.execute(
+                        select(PlaylistCollaborator).where(
+                            PlaylistCollaborator.playlist_id == playlist_id,
+                            PlaylistCollaborator.user_id == user.id,
+                        )
+                    )
+                ).scalar_one_or_none()
+                can_read = row is not None
+        if not can_read:
+            raise HTTPException(status_code=404, detail="Плейлист не найден")
     r = await db.execute(
         select(Track)
         .join(PlaylistTrack, PlaylistTrack.track_id == Track.id)
@@ -86,12 +158,37 @@ async def playlist_tracks(playlist_id: int, db: AsyncSession = Depends(get_db)) 
     return list(r.scalars().all())
 
 
-@router.get("/mine", response_model=List[PlaylistOut])
-async def my_playlists(
+@router.patch("/{playlist_id}", response_model=PlaylistOut)
+async def update_playlist(
+    playlist_id: int,
+    body: dict,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+) -> Playlist:
+    p = (await db.execute(select(Playlist).where(Playlist.id == playlist_id))).scalar_one_or_none()
+    if not p or p.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Плейлист не найден")
+    if "title" in body and isinstance(body["title"], str) and body["title"].strip():
+        p.title = body["title"].strip()[:255]
+    if "description" in body:
+        p.description = (body.get("description") or None)
+    if "is_public" in body:
+        p.is_public = bool(body.get("is_public"))
+    await db.flush()
+    await db.refresh(p)
+    return p
+
+
+@router.get("", response_model=List[PlaylistOut])
+async def list_playlists(
+    mine: bool = Query(False),
+    db: AsyncSession = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user_optional),
 ) -> List[Playlist]:
-    r = await db.execute(select(Playlist).where(Playlist.user_id == user.id).order_by(Playlist.created_at.desc()))
+    if mine and user:
+        r = await db.execute(select(Playlist).where(Playlist.user_id == user.id).order_by(Playlist.created_at.desc()))
+        return list(r.scalars().all())
+    r = await db.execute(select(Playlist).where(Playlist.is_public.is_(True)).order_by(Playlist.created_at.desc()).limit(100))
     return list(r.scalars().all())
 
 
@@ -123,6 +220,10 @@ async def add_track_to_playlist(
     )
     pos = int(max_pos.scalar_one() or 0) + 1
     db.add(PlaylistTrack(playlist_id=playlist_id, track_id=track_id, position=pos))
+    if t.cover_url:
+        p.cover_url = t.cover_url
+    await db.flush()
+    await db.refresh(p)
     return {"ok": True}
 
 
@@ -187,18 +288,27 @@ async def add_collaborator(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict:
+    username = (body.get("username") or "").strip()
     role = (body.get("role") or "editor").strip()
+    p = (await db.execute(select(Playlist).where(Playlist.id == playlist_id))).scalar_one_or_none()
+    if not p or p.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Плейлист не найден")
+    target = (await db.execute(select(User).where(User.username == username))).scalar_one_or_none()
+    if not target:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    if target.id == p.user_id:
+        return {"ok": True}
     exists = (
         await db.execute(
             select(PlaylistCollaborator).where(
                 PlaylistCollaborator.playlist_id == playlist_id,
-                PlaylistCollaborator.user_id == user.id,
+                PlaylistCollaborator.user_id == target.id,
             )
         )
     ).scalar_one_or_none()
     if exists:
         return {"ok": True}
-    db.add(PlaylistCollaborator(playlist_id=playlist_id, user_id=user.id, role=role))
+    db.add(PlaylistCollaborator(playlist_id=playlist_id, user_id=target.id, role=role))
     return {"ok": True}
 
 

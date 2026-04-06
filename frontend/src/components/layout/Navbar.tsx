@@ -38,12 +38,24 @@ function SearchBar() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [query, setQuery] = useState(searchParams.get('q') || '');
+  const [openQuick, setOpenQuick] = useState(false);
 
   useEffect(() => {
     setQuery(searchParams.get('q') || '');
   }, [searchParams]);
 
   const debouncedNavigate = useDebouncedCallback((url: string) => navigate(url), 300);
+  const quickResults = useQuery({
+    queryKey: ['quick-search', query],
+    queryFn: () =>
+      api
+        .get<{
+          tracks: Array<{ id: number; title: string; user?: { username: string; display_name: string } }>;
+          users: Array<{ id: number; username: string; display_name: string }>;
+        }>(`/api/search?q=${encodeURIComponent(query)}`)
+        .then((r) => r.data),
+    enabled: query.trim().length >= 2,
+  });
 
   return (
     <form
@@ -66,11 +78,44 @@ function SearchBar() {
             if (trimmed.length > 1) {
               debouncedNavigate(`/search?q=${encodeURIComponent(trimmed)}`);
             }
+            setOpenQuick(trimmed.length >= 2);
           }}
+          onFocus={() => setOpenQuick(query.trim().length >= 2)}
+          onBlur={() => setTimeout(() => setOpenQuick(false), 120)}
           placeholder="Поиск треков, артистов, плейлистов..."
           className="w-full rounded-full border border-[var(--border)] bg-[var(--bg-elevated)] px-10 py-2 text-sm text-[var(--text-primary)] outline-none focus:ring-2 focus:ring-[var(--primary)]"
           aria-label="Поиск"
         />
+        {openQuick && (
+          <div className="absolute left-0 right-0 top-[calc(100%+8px)] z-50 rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-2 shadow-[var(--shadow-card)]">
+            {(quickResults.data?.tracks?.slice(0, 3) ?? []).map((t) => (
+              <button
+                key={`t-${t.id}`}
+                type="button"
+                onClick={() => navigate(`/track/${t.id}`)}
+                className="block w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-[var(--bg-elevated)]"
+              >
+                <div className="font-semibold">{t.title}</div>
+                <div className="text-xs text-[var(--text-secondary)]">{t.user?.display_name ?? 'Трек'}</div>
+              </button>
+            ))}
+            {(quickResults.data?.users?.slice(0, 3) ?? []).map((u) => (
+              <button
+                key={`u-${u.id}`}
+                type="button"
+                onClick={() => navigate(`/artist/${u.username}`)}
+                className="block w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-[var(--bg-elevated)]"
+              >
+                <div className="font-semibold">{u.display_name}</div>
+                <div className="text-xs text-[var(--text-secondary)]">@{u.username}</div>
+              </button>
+            ))}
+            {!quickResults.isLoading &&
+            (quickResults.data?.tracks?.length ?? 0) + (quickResults.data?.users?.length ?? 0) === 0 ? (
+              <div className="px-3 py-2 text-xs text-[var(--text-muted)]">Ничего не найдено</div>
+            ) : null}
+          </div>
+        )}
       </div>
     </form>
   );
@@ -99,15 +144,20 @@ function UserMenu() {
 
   if (!user) return null;
 
+  const apiBase = import.meta.env.VITE_API_URL || '';
+  const avatarSrc =
+    user.avatar_url &&
+    (user.avatar_url.startsWith('http') ? user.avatar_url : `${apiBase}${user.avatar_url}`);
+
   return (
     <div className="relative" onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
       <button
         type="button"
-        className="flex items-center gap-2 rounded-full border border-[var(--border)] p-1 pr-3"
+        className="flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--bg-surface)] p-1 pr-3 shadow-sm ring-1 ring-black/[0.04] transition hover:bg-[var(--bg-elevated)] dark:ring-white/[0.06]"
       >
-        <div className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-[var(--primary-light)] text-[var(--primary)]">
-          {user.avatar_url ? (
-            <img src={user.avatar_url} alt="" className="h-full w-full object-cover" />
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[var(--primary-light)] text-[var(--primary)] ring-2 ring-[var(--bg-base)]">
+          {avatarSrc ? (
+            <img src={avatarSrc} alt="" className="h-full w-full object-cover" />
           ) : (
             <User className="h-4 w-4" />
           )}
@@ -151,7 +201,7 @@ function UserMenu() {
           </Link>
           {user.is_admin && (
             <Link
-              to="/admin"
+              to="/admin/dashboard"
               className="block rounded-lg px-3 py-2 text-sm hover:bg-[var(--bg-elevated)]"
               onClick={() => setOpen(false)}
             >

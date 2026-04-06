@@ -1,13 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Heart, Share2, Repeat, Play, Eye, Music, Tag, MessageCircle } from 'lucide-react';
 import { useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 
 import { api } from '../api/client';
 import { Button } from '../components/common/Button';
+import { AddToPlaylistModal } from '../components/track/AddToPlaylistModal';
 import { Comments } from '../components/track/Comments';
 import { Waveform } from '../components/player/Waveform';
+import { TrackRow } from '../components/track/TrackRow';
+import { TrackRowStack } from '../components/track/TrackRowStack';
 import { useAuthStore } from '../store/authStore';
 import { goToLogin } from '../utils/authNavigation';
 import { usePlayerStore } from '../store/playerStore';
@@ -31,6 +34,8 @@ export function TrackPage() {
   const seek = usePlayerStore((s) => s.seek);
   const playerPosition = usePlayerStore((s) => s.position);
   const currentTrack = usePlayerStore((s) => s.currentTrack);
+  const repeatMode = usePlayerStore((s) => s.repeat);
+  const setRepeat = usePlayerStore((s) => s.setRepeat);
   const accessToken = useAuthStore((s) => s.accessToken);
 
   const requireAuth = (action: () => void) => {
@@ -43,13 +48,21 @@ export function TrackPage() {
   const [isLiked, setIsLiked] = useState(false);
   const [isReposted, setIsReposted] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
+  const [showPlaylistModal, setShowPlaylistModal] = useState(false);
   const [searchUser, setSearchUser] = useState('');
 
   const isCurrentTrack = currentTrack?.id === Number(id);
+  const isRepeatOneActive = isCurrentTrack && repeatMode === 'one';
 
   const { data: track, isLoading } = useQuery({
     queryKey: ['track', id],
     queryFn: () => api.get<Track>(`/api/tracks/${id}`).then((r) => r.data),
+    enabled: !!id,
+  });
+
+  const relatedQ = useQuery({
+    queryKey: ['track-related', id],
+    queryFn: () => api.get<Track[]>(`/api/tracks/${id}/related?limit=8`).then((r) => r.data),
     enabled: !!id,
   });
 
@@ -99,7 +112,7 @@ export function TrackPage() {
 
   const shareTrackTo = async (usernameTo: string) => {
     if (!track) return;
-    await api.post(`/api/messages/${usernameTo}`, { text: `Послушай этот трек: ${track.title}`, track_id: track.id });
+    await api.post(`/api/messages/${usernameTo}`, { text: '', track_id: track.id });
     toast.success('Трек отправлен');
     setShowShareModal(false);
   };
@@ -112,9 +125,9 @@ export function TrackPage() {
   return (
     <div className="space-y-8">
       <div className="flex flex-col gap-8 lg:flex-row">
-        <div className="relative aspect-square w-full max-w-md overflow-hidden rounded-card shadow-card">
+        <div className="relative aspect-square w-full max-w-md overflow-hidden rounded-2xl shadow-lg ring-1 ring-black/5 dark:ring-white/10">
           {cover ? (
-            <img src={cover} alt="" className="h-full w-full object-cover" />
+            <img src={cover} alt="" className="h-full w-full object-cover" draggable={false} />
           ) : (
             <div
               className="h-full w-full"
@@ -123,13 +136,17 @@ export function TrackPage() {
           )}
         </div>
         <div className="flex-1">
-          <h1 className="font-display text-4xl font-bold">{track.title}</h1>
-          <a
-            href={`/artist/${track.user?.username}`}
-            className="mt-2 inline-block text-[var(--text-secondary)] hover:text-[var(--primary)]"
-          >
-            {track.user?.display_name}
-          </a>
+          <h1 className="font-display text-4xl font-bold tracking-tight text-[var(--text-primary)] md:text-5xl">{track.title}</h1>
+          {track.user?.username ? (
+            <Link
+              to={`/artist/${track.user.username}`}
+              className="mt-3 inline-block text-sm font-medium text-[var(--text-muted)] transition-colors hover:text-[var(--primary)]"
+            >
+              {track.user.display_name}
+            </Link>
+          ) : (
+            <span className="mt-3 inline-block text-sm font-medium text-[var(--text-muted)]">{track.user?.display_name}</span>
+          )}
           <div className="mt-6 flex flex-wrap gap-2">
             <Button onClick={() => playTrack(track)}>
               <Play className="mr-2 h-4 w-4" /> Играть
@@ -141,16 +158,32 @@ export function TrackPage() {
               <Heart className={`mr-2 h-4 w-4 ${isLiked ? 'fill-current' : ''}`} /> {track.likes_count}
             </Button>
             <Button
+              variant={isRepeatOneActive ? 'primary' : 'secondary'}
+              onClick={() => {
+                if (!isCurrentTrack) {
+                  playTrack(track);
+                  setRepeat('one');
+                  return;
+                }
+                setRepeat(repeatMode === 'one' ? 'off' : 'one');
+              }}
+            >
+              <Repeat className="mr-2 h-4 w-4" /> Повтор трека
+            </Button>
+            <Button
               variant={isReposted ? 'primary' : 'secondary'}
               onClick={() => requireAuth(() => repostMutation.mutate())}
             >
-              <Repeat className={`mr-2 h-4 w-4 ${isReposted ? 'fill-current' : ''}`} /> {formatNumber(track.reposts_count || 0)}
+              Репост · {formatNumber(track.reposts_count || 0)}
             </Button>
             <Button variant="ghost" onClick={handleShare}>
               <Share2 className="mr-2 h-4 w-4" /> Поделиться
             </Button>
             <Button variant="ghost" onClick={() => requireAuth(() => setShowShareModal(true))}>
               <MessageCircle className="mr-2 h-4 w-4" /> Отправить
+            </Button>
+            <Button variant="secondary" onClick={() => requireAuth(() => setShowPlaylistModal(true))}>
+              + В плейлист
             </Button>
           </div>
           <p className="mt-6 text-[var(--text-secondary)]">{track.description}</p>
@@ -183,6 +216,19 @@ export function TrackPage() {
         {track.bpm ? ` · BPM ${track.bpm}` : ''}
         {track.key_signature ? ` · ${track.key_signature}` : ''}
       </p>
+
+      {(relatedQ.data?.length ?? 0) > 0 && (
+        <div className="mt-8">
+          <h3 className="mb-3 font-semibold">Похожие треки</h3>
+          <TrackRowStack>
+            {relatedQ.data!.map((t, idx) => (
+              <div key={t.id} onClick={() => navigate(`/track/${t.id}`)} className="cursor-pointer">
+                <TrackRow track={t} index={idx} queue={relatedQ.data!} />
+              </div>
+            ))}
+          </TrackRowStack>
+        </div>
+      )}
 
       {track.allow_comments && (
         <div className="mt-8">
@@ -219,6 +265,7 @@ export function TrackPage() {
           </div>
         </div>
       )}
+      <AddToPlaylistModal trackId={track.id} open={showPlaylistModal} onClose={() => setShowPlaylistModal(false)} />
     </div>
   );
 }

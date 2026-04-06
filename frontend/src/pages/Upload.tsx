@@ -7,18 +7,7 @@ import toast from 'react-hot-toast';
 
 import { api } from '../api/client';
 import { Button } from '../components/common/Button';
-
-const GENRES = [
-  'Электронная',
-  'Хип-хоп',
-  'Поп',
-  'Рок',
-  'Джаз',
-  'Классика',
-  'R&B',
-  'Инди',
-  'Другое',
-];
+import { GENRES } from '../constants/genres';
 
 export function Upload() {
   const navigate = useNavigate();

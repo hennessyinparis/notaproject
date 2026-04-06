@@ -5,11 +5,10 @@ import { Link } from 'react-router-dom';
 
 import { api } from '../api/client';
 import { TrackCard } from '../components/track/TrackCard';
+import { GENRES } from '../constants/genres';
 import type { Track } from '../types';
 
 type Filter = 'all' | 'tracks' | 'users' | 'playlists';
-
-const genres = ['Pop', 'Hip-Hop', 'Rock', 'Electronic', 'Lo-fi'] as const;
 
 function useDebouncedValue<T>(value: T, ms: number) {
   const [v, setV] = useState(value);
@@ -89,7 +88,7 @@ export function Search() {
         <div>
           <h2 className="mb-3 font-semibold">Жанры</h2>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
-            {genres.map((g) => (
+            {GENRES.map((g) => (
               <button
                 key={g}
                 type="button"
@@ -138,16 +137,25 @@ export function Search() {
             <section>
               <h2 className="mb-3 font-semibold">Плейлисты</h2>
               <div className="grid gap-3 md:grid-cols-2">
-                {visiblePlaylists.map((p: any) => (
-                  <Link
-                    key={p.id}
-                    to={`/playlist/${p.id}`}
-                    className="rounded-card border border-[var(--border)] bg-[var(--bg-surface)] p-4 shadow-card transition hover:scale-[1.01]"
-                  >
-                    <p className="font-semibold">{p.title}</p>
-                    <p className="text-sm text-[var(--text-muted)]">ID: {p.id}</p>
-                  </Link>
-                ))}
+                {visiblePlaylists.map((p: { id: number; title: string; cover_url?: string | null }) => {
+                  const pb = import.meta.env.VITE_API_URL || '';
+                  const art = p.cover_url ? `${pb}${p.cover_url}` : null;
+                  return (
+                    <Link
+                      key={p.id}
+                      to={`/playlist/${p.id}`}
+                      className="flex gap-3 rounded-card border border-[var(--border)] bg-[var(--bg-surface)] p-4 shadow-card transition hover:scale-[1.01]"
+                    >
+                      <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-[var(--bg-elevated)] ring-1 ring-black/5 dark:ring-white/10">
+                        {art ? <img src={art} alt="" className="h-full w-full object-cover" /> : null}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-semibold">{p.title}</p>
+                        <p className="text-sm text-[var(--text-muted)]">Плейлист</p>
+                      </div>
+                    </Link>
+                  );
+                })}
               </div>
             </section>
           )}

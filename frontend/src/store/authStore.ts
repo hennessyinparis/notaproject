@@ -32,5 +32,3 @@ export const useAuthStore = create<AuthState>()(
     { name: 'nota-auth', partialize: (s) => ({ accessToken: s.accessToken, refreshToken: s.refreshToken }) }
   )
 );
-
-setAuthHeader(useAuthStore.getState().accessToken);

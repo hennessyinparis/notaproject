@@ -3,7 +3,8 @@ import { Heart } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useState } from 'react';
 
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 
 import { api } from '../../api/client';
 import { useAuthStore } from '../../store/authStore';
@@ -21,6 +22,13 @@ interface Comment {
   author_display: string | null;
   author_avatar: string | null;
   is_liked: boolean;
+}
+
+function avatarUrl(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  if (raw.startsWith('http')) return raw;
+  const base = import.meta.env.VITE_API_URL || '';
+  return `${base}${raw}`;
 }
 
 export function Comments({ trackId }: { trackId: number }) {
@@ -51,7 +59,9 @@ export function Comments({ trackId }: { trackId: number }) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['comments', trackId] });
+      toast.success('Комментарий удалён');
     },
+    onError: () => toast.error('Не удалось удалить комментарий'),
   });
 
   const addMutation = useMutation({
@@ -71,10 +81,18 @@ export function Comments({ trackId }: { trackId: number }) {
   return (
     <div className="space-y-4">
       {comments?.length ? null : <div className="text-sm text-[var(--text-muted)]">Комментариев пока нет</div>}
-      {(comments ?? []).map((comment) => (
+      {(comments ?? []).map((comment) => {
+        const av = avatarUrl(comment.author_avatar);
+        return (
         <div key={comment.id} className="flex gap-3">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--primary-light)] text-xs font-bold text-[var(--primary)]">
-            {comment.author_display?.[0] || comment.author_username?.[0] || '?'}
+          <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-full bg-[var(--bg-elevated)] ring-1 ring-black/5 dark:ring-white/10">
+            {av ? (
+              <img src={av} alt="" className="h-full w-full object-cover" />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center bg-[var(--primary-light)] text-sm font-bold text-[var(--primary)]">
+                {comment.author_display?.[0] || comment.author_username?.[0] || '?'}
+              </div>
+            )}
           </div>
           <div className="flex-1">
             <div className="flex items-center gap-2">
@@ -101,13 +119,18 @@ export function Comments({ trackId }: { trackId: number }) {
               {comment.likes_count}
             </button>
             {me && me.id === comment.user_id && (
-              <button type="button" onClick={() => deleteMutation.mutate(comment.id)} className="ml-3 mt-1 text-xs text-[var(--error)] hover:underline">
+              <button
+                type="button"
+                onClick={() => deleteMutation.mutate(comment.id)}
+                className="ml-3 mt-1 text-xs text-[var(--error)] hover:underline"
+              >
                 Удалить
               </button>
             )}
           </div>
         </div>
-      ))}
+        );
+      })}
       {accessToken ? (
         <div className="pt-2">
           <div className="flex gap-2">

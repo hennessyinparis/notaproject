@@ -48,7 +48,8 @@ async def get_conversations(
     result: list[ConversationOut] = []
     for user, last_time, unread_count in rows.all():
         last_msg_q = await db.execute(
-            select(Message.text)
+            select(Message.text, Message.track_id, Track.title)
+            .outerjoin(Track, Track.id == Message.track_id)
             .where(
                 or_(
                     and_(Message.sender_id == current_user.id, Message.receiver_id == user.id),
@@ -58,7 +59,17 @@ async def get_conversations(
             .order_by(Message.created_at.desc())
             .limit(1)
         )
-        last_message = last_msg_q.scalar_one_or_none() or ""
+        row = last_msg_q.one_or_none()
+        if row:
+            text, tid, ttitle = row
+            if text and text.strip():
+                last_message = text
+            elif tid and ttitle:
+                last_message = f"Трек · {ttitle}"
+            else:
+                last_message = text or ""
+        else:
+            last_message = ""
         result.append(
             ConversationOut(
                 user=UserShort.model_validate(user),
