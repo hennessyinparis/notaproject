@@ -1,11 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Heart } from 'lucide-react';
+import { Flag, Heart } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useState } from 'react';
 
 import { useNavigate } from 'react-router-dom';
 import { Link } from 'react-router-dom';
 
+import { ReportModal } from '../report/ReportModal';
 import { api } from '../../api/client';
 import { useAuthStore } from '../../store/authStore';
 import { goToLogin } from '../../utils/authNavigation';
@@ -37,6 +38,7 @@ export function Comments({ trackId }: { trackId: number }) {
   const me = useAuthStore((s) => s.user);
   const queryClient = useQueryClient();
   const [newText, setNewText] = useState('');
+  const [reportCommentId, setReportCommentId] = useState<number | null>(null);
 
   const { data: comments, isLoading } = useQuery({
     queryKey: ['comments', trackId],
@@ -127,10 +129,21 @@ export function Comments({ trackId }: { trackId: number }) {
                 Удалить
               </button>
             )}
+            {accessToken && me && !me.is_admin && (
+              <button
+                type="button"
+                onClick={() => setReportCommentId(comment.id)}
+                className="ml-3 mt-1 text-xs text-[var(--text-muted)] hover:text-red-400"
+                title="Пожаловаться"
+              >
+                <Flag className="h-3 w-3" />
+              </button>
+            )}
           </div>
         </div>
         );
       })}
+      <ReportModal open={reportCommentId !== null} onClose={() => setReportCommentId(null)} reportType="comment" targetId={reportCommentId ?? 0} />
       {accessToken ? (
         <div className="pt-2">
           <div className="flex gap-2">

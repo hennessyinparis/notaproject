@@ -40,6 +40,9 @@ class User(Base):
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
     is_blocked: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
+    messages_privacy: Mapped[str] = mapped_column(String(32), default="everyone")
+    profile_visibility: Mapped[str] = mapped_column(String(32), default="public")
     subscription_type: Mapped[str] = mapped_column(
         String(32), default=UserSubscriptionType.FREE.value
     )
@@ -47,6 +50,8 @@ class User(Base):
         String(32), default=ArtistSubscriptionType.BASIC.value
     )
     subscription_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    student_verification_status: Mapped[str] = mapped_column(String(32), default="none")
+    student_verification_doc_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

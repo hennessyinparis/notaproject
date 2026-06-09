@@ -2,7 +2,7 @@ import enum
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, func, Index
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -14,12 +14,24 @@ class NotificationType(str, enum.Enum):
     TRACK_REPOSTED = "track_reposted"
     TRACK_COMMENTED = "track_commented"
     NEW_TRACK_FROM_FOLLOWING = "new_track_from_following"
+    NEW_MESSAGE = "new_message"
+    PLAYLIST_INVITE = "playlist_invite"
     MENTION = "mention"
     ROYALTY_EARNED = "royalty_earned"
+    REPORT_UPDATE = "report_update"
+    REPORT_RESOLVED = "report_resolved"
+    REPORT_DISMISSED = "report_dismissed"
+    DONATION_RECEIVED = "donation_received"
 
 
 class Notification(Base):
     __tablename__ = "notifications"
+
+    __table_args__ = (
+        Index('ix_notifications_created_at', 'created_at'),
+        Index('ix_notifications_user_id_created_at', 'user_id', 'created_at'),
+        Index('ix_notifications_user_id_is_read', 'user_id', 'is_read'),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)

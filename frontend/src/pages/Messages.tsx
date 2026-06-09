@@ -161,7 +161,6 @@ export function Messages() {
   const conversationsQ = useQuery({
     queryKey: ['conversations'],
     queryFn: () => api.get<Conversation[]>('/api/messages/conversations').then((r) => r.data),
-    refetchInterval: 6000,
   });
 
   const showList = !narrow || !selectedUser;
@@ -263,12 +262,13 @@ export function Messages() {
 function ChatWindow({ username, onBack }: { username: string; onBack?: () => void }) {
   const [text, setText] = useState('');
   const queryClient = useQueryClient();
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesScrollRef = useRef<HTMLDivElement>(null);
+  const stickToBottomRef = useRef(true);
+  const prevCountRef = useRef(0);
 
   const messagesQ = useQuery({
     queryKey: ['messages', username],
     queryFn: () => api.get<Message[]>(`/api/messages/${username}`).then((r) => r.data),
-    refetchInterval: 4000,
   });
 
   const recipientQ = useQuery({
@@ -276,8 +276,28 @@ function ChatWindow({ username, onBack }: { username: string; onBack?: () => voi
     queryFn: () => api.get<{ display_name: string; username: string; avatar_url: string | null }>(`/api/users/${username}`).then((r) => r.data),
   });
 
+  const scrollChatToBottom = (instant = false) => {
+    const el = messagesScrollRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: instant ? 'auto' : 'smooth' });
+  };
+
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    stickToBottomRef.current = true;
+    prevCountRef.current = 0;
+    window.scrollTo({ top: 0, behavior: 'auto' });
+    requestAnimationFrame(() => scrollChatToBottom(true));
+  }, [username]);
+
+  useEffect(() => {
+    const count = messagesQ.data?.length ?? 0;
+    if (!count) return;
+    const isInitial = prevCountRef.current === 0;
+    const hasNew = count > prevCountRef.current;
+    prevCountRef.current = count;
+    if (isInitial || (hasNew && stickToBottomRef.current)) {
+      requestAnimationFrame(() => scrollChatToBottom(isInitial));
+    }
   }, [messagesQ.data]);
 
   useEffect(() => {
@@ -286,6 +306,7 @@ function ChatWindow({ username, onBack }: { username: string; onBack?: () => voi
 
   const sendMessage = async () => {
     if (!text.trim()) return;
+    stickToBottomRef.current = true;
     await api.post(`/api/messages/${username}`, { text });
     setText('');
     queryClient.invalidateQueries({ queryKey: ['messages', username] });
@@ -314,7 +335,15 @@ function ChatWindow({ username, onBack }: { username: string; onBack?: () => voi
         </Link>
       </div>
 
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain bg-[var(--bg-base)] px-3 py-4 sm:px-6">
+      <div
+        ref={messagesScrollRef}
+        onScroll={() => {
+          const el = messagesScrollRef.current;
+          if (!el) return;
+          stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 96;
+        }}
+        className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain bg-[var(--bg-base)] px-3 py-4 sm:px-6"
+      >
         {messagesQ.data?.map((msg) => (
           <div key={msg.id} className={clsx('flex w-full', msg.is_mine ? 'justify-end' : 'justify-start')}>
             <div
@@ -349,7 +378,6 @@ function ChatWindow({ username, onBack }: { username: string; onBack?: () => voi
             </div>
           </div>
         ))}
-        <div ref={messagesEndRef} />
       </div>
 
       <div className="border-t border-[var(--border)] bg-[var(--bg-surface)]/95 p-3 backdrop-blur-md sm:p-4">

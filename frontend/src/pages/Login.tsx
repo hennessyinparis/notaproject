@@ -5,13 +5,10 @@ import toast from 'react-hot-toast';
 
 import { api, setAuthHeader } from '../api/client';
 import { Button } from '../components/common/Button';
+import { useMeQuery } from '../hooks/useMeQuery';
 import { useAuthStore } from '../store/authStore';
+import { getErrorMessage } from '../utils/error';
 import type { AuthUser } from '../types';
-
-function getErrorMessage(error: unknown, fallback: string) {
-  const err = error as { response?: { data?: { detail?: string; message?: string } }; message?: string };
-  return err?.response?.data?.detail || err?.response?.data?.message || err?.message || fallback;
-}
 
 export function Login() {
   const [username, setUsername] = useState('');
@@ -22,6 +19,8 @@ export function Login() {
   const user = useAuthStore((s) => s.user);
   const setTokens = useAuthStore((s) => s.setTokens);
   const setUser = useAuthStore((s) => s.setUser);
+  const logout = useAuthStore((s) => s.logout);
+  const meQ = useMeQuery();
 
   const from = (location.state as { from?: string })?.from || '/';
 
@@ -31,14 +30,19 @@ export function Login() {
       const { access_token, refresh_token } = res.data;
       setTokens(access_token, refresh_token);
       setAuthHeader(access_token);
-      const me = await api.get<AuthUser>('/api/users/me');
-      setUser(me.data);
-      toast.success('С возвращением!');
-      if (me.data.is_admin) {
-        navigate('/admin/dashboard', { replace: true });
-      } else {
-        const dest = from.startsWith('/admin') ? '/' : from;
-        navigate(dest, { replace: true });
+      try {
+        const me = await api.get<AuthUser>('/api/users/me');
+        setUser(me.data);
+        toast.success('С возвращением!');
+        if (me.data.is_admin) {
+          navigate('/admin/dashboard', { replace: true });
+        } else {
+          const dest = from.startsWith('/admin') ? '/' : from;
+          navigate(dest, { replace: true });
+        }
+      } catch (error) {
+        logout();
+        toast.error(getErrorMessage(error, 'Не удалось загрузить профиль'));
       }
     },
     onError: (error) => toast.error(getErrorMessage(error, 'Ошибка входа')),
@@ -46,6 +50,18 @@ export function Login() {
 
   if (accessToken && user) {
     return <Navigate to={user.is_admin ? '/admin/dashboard' : '/'} replace />;
+  }
+
+  if (accessToken && !user && meQ.isLoading) {
+    return (
+      <div className="flex min-h-[min(70vh,720px)] flex-col items-center justify-center gap-3 text-[var(--text-secondary)]">
+        <div
+          className="h-10 w-10 animate-spin rounded-full border-2 border-[var(--border)] border-t-[var(--primary)]"
+          aria-hidden
+        />
+        <p className="text-sm">Проверяем сессию…</p>
+      </div>
+    );
   }
 
   return (
@@ -72,6 +88,11 @@ export function Login() {
           <Button className="w-full" loading={login.isPending} onClick={() => login.mutate()}>
             Войти
           </Button>
+          <p className="text-center text-sm">
+            <Link to="/forgot-password" className="text-[var(--primary)] hover:underline">
+              Забыли пароль?
+            </Link>
+          </p>
         </div>
         <p className="mt-4 text-center text-sm text-[var(--text-secondary)]">
           Нет аккаунта?{' '}

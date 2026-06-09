@@ -1,13 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Pencil, Play, Lock, Globe, UserPlus, Share2, ListMusic, Shuffle } from 'lucide-react';
-import { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { Flag, Heart, Pencil, Play, Lock, Globe, UserPlus, Share2, ListMusic, Shuffle, Trash2 } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 
 import { api } from '../api/client';
 import { Button } from '../components/common/Button';
 import { TrackRow } from '../components/track/TrackRow';
 import { TrackRowStack } from '../components/track/TrackRowStack';
+import { ReportModal } from '../components/report/ReportModal';
 import { useAuthStore } from '../store/authStore';
 import { usePlayerStore } from '../store/playerStore';
 import type { Track } from '../types';
@@ -19,10 +20,14 @@ type PlaylistOut = {
   description?: string | null;
   cover_url?: string | null;
   is_public: boolean;
+  is_album?: boolean;
+  likes_count?: number;
 };
 
 export function PlaylistPage() {
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const playTrack = usePlayerStore((s) => s.playTrack);
   const user = useAuthStore((s) => s.user);
   const qc = useQueryClient();
@@ -33,6 +38,7 @@ export function PlaylistPage() {
   const [editOpen, setEditOpen] = useState(false);
   const [editTitle, setEditTitle] = useState('');
   const [editDescription, setEditDescription] = useState('');
+  const [reportOpen, setReportOpen] = useState(false);
 
   const { data: pl } = useQuery({
     queryKey: ['playlist', id],
@@ -62,6 +68,48 @@ export function PlaylistPage() {
   });
   const isOwner = !!user && !!pl && user.id === pl.user_id;
 
+  const likedQ = useQuery({
+    queryKey: ['playlist-liked', id],
+    queryFn: () => api.get<{ liked: boolean; likes_count: number }>(`/api/playlists/${id}/liked`).then((r) => r.data),
+    enabled: !!id && !!user && !user.is_admin,
+  });
+
+  const acceptInviteM = useMutation({
+    mutationFn: () => api.post(`/api/playlists/${id}/accept-invite`),
+    onSuccess: () => toast.success('Вы приняли приглашение'),
+    onError: () => toast.error('Не удалось принять приглашение'),
+  });
+
+  const inviteAccepted = useRef(false);
+  useEffect(() => {
+    if (inviteAccepted.current) return;
+    if (searchParams.get('accept') === '1' && id && user) {
+      inviteAccepted.current = true;
+      acceptInviteM.mutate();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, user?.id, searchParams]);
+
+  const likeM = useMutation({
+    mutationFn: async () => {
+      if (likedQ.data?.liked) await api.delete(`/api/playlists/${id}/like`);
+      else await api.post(`/api/playlists/${id}/like`);
+    },
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ['playlist-liked', id] });
+      await qc.invalidateQueries({ queryKey: ['playlist', id] });
+    },
+  });
+
+  const inviteM = useMutation({
+    mutationFn: async () => api.post(`/api/playlists/${id}/invite`, { username: collabUsername }),
+    onSuccess: async () => {
+      setCollabUsername('');
+      toast.success('Приглашение отправлено');
+    },
+    onError: () => toast.error('Не удалось пригласить'),
+  });
+
   useEffect(() => {
     if (pl && editOpen) {
       setEditTitle(pl.title);
@@ -78,6 +126,16 @@ export function PlaylistPage() {
       toast.success('Плейлист обновлён');
     },
     onError: () => toast.error('Не удалось сохранить'),
+  });
+
+  const deleteM = useMutation({
+    mutationFn: async () => api.delete(`/api/playlists/${id}`),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ['playlists', 'mine'] });
+      toast.success('Плейлист удалён');
+      navigate('/library');
+    },
+    onError: () => toast.error('Не удалось удалить плейлист'),
   });
 
   const addCollabM = useMutation({
@@ -120,7 +178,9 @@ export function PlaylistPage() {
             </div>
           </div>
           <div className="min-w-0 flex-1 text-center sm:pb-1 sm:text-left">
-            <p className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">Плейлист</p>
+            <p className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
+              {pl.is_album ? 'Альбом' : 'Плейлист'}
+            </p>
             <h1 className="mt-1 font-display text-3xl font-bold tracking-tight text-[var(--text-primary)] sm:text-4xl">
               {pl.title}
             </h1>
@@ -145,6 +205,18 @@ export function PlaylistPage() {
               <Button variant="ghost" onClick={() => setShowShare(true)}>
                 <Share2 className="mr-2 h-4 w-4" /> Поделиться
               </Button>
+              {user && !user.is_admin && (
+                <Button variant="ghost" onClick={() => likeM.mutate()} loading={likeM.isPending}>
+                  <Heart className={`mr-2 h-4 w-4 ${likedQ.data?.liked ? 'fill-[var(--primary)] text-[var(--primary)]' : ''}`} />
+                  {likedQ.data?.liked ? 'В избранном' : 'Нравится'}
+                  {pl.likes_count != null ? ` · ${pl.likes_count}` : ''}
+                </Button>
+              )}
+              {!isOwner && !user?.is_admin && user && (
+                <Button variant="ghost" onClick={() => setReportOpen(true)}>
+                  <Flag className="mr-2 h-4 w-4" /> Пожаловаться
+                </Button>
+              )}
               {isOwner && (
                 <>
                   <Button variant="secondary" onClick={() => setEditOpen(true)}>
@@ -174,9 +246,12 @@ export function PlaylistPage() {
                 placeholder="username друга"
                 className="rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-2 text-sm text-[var(--text-primary)]"
               />
+              <Button onClick={() => inviteM.mutate()} disabled={!collabUsername.trim()} loading={inviteM.isPending} variant="secondary">
+                Пригласить
+              </Button>
               <Button onClick={() => addCollabM.mutate()} disabled={!collabUsername.trim()} loading={addCollabM.isPending}>
                 <UserPlus className="mr-2 h-4 w-4" />
-                Добавить соавтора
+                Добавить сразу
               </Button>
             </div>
             {!!collaboratorsQ.data?.length && (
@@ -210,6 +285,7 @@ export function PlaylistPage() {
         )}
       </div>
 
+      <ReportModal open={reportOpen} onClose={() => setReportOpen(false)} reportType="playlist" targetId={pl.id} targetLabel={pl.title} />
       {editOpen && isOwner && (
         <div
           className="fixed inset-0 z-[140] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
@@ -254,6 +330,17 @@ export function PlaylistPage() {
               </Button>
               <Button variant="secondary" onClick={() => setEditOpen(false)}>
                 Отмена
+              </Button>
+              <Button
+                variant="danger"
+                onClick={() => {
+                  if (confirm('Удалить плейлист?')) {
+                    deleteM.mutate();
+                  }
+                }}
+                loading={deleteM.isPending}
+              >
+                <Trash2 className="mr-2 h-4 w-4" /> Удалить
               </Button>
             </div>
             <p className="mt-4 text-xs text-[var(--text-muted)]">

@@ -1,5 +1,5 @@
-import { motion, AnimatePresence } from 'framer-motion';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
 import {
   Maximize2,
   Minimize2,
@@ -17,58 +17,61 @@ import {
   SlidersHorizontal,
   Heart,
   MessageCircle,
+  Moon,
+  Lock,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 
 import { api } from '../../api/client';
-import { RATES, usePlayerStore } from '../../store/playerStore';
+import { usePlayerStore } from '../../store/playerStore';
 import { useEqStore } from '../../store/eqStore';
 import { useAuthStore } from '../../store/authStore';
 import { goToLogin } from '../../utils/authNavigation';
 import { formatDuration } from '../../utils/format';
+import { normalizeWaveformPeaks } from '../../utils/waveform';
 import { AddToPlaylistModal } from '../track/AddToPlaylistModal';
+import { stringToColor } from '../../utils/color';
 import { Equalizer } from './Equalizer';
+import { PlayerPositionTicker } from './PlayerPositionTicker';
+import { QueueDragDrop } from './QueueDragDrop';
+import { SpeedKnob } from './SpeedKnob';
 import { Waveform } from './Waveform';
+import { hasPaidSubscription } from '../../utils/subscription';
 
-function stringToColor(str: string): string {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const hue = hash % 360;
-  return `linear-gradient(135deg, hsl(${hue}, 70%, 50%), hsl(${(hue + 40) % 360}, 80%, 30%))`;
-}
-
+/** Полнофункциональный плеер для треков (реклама — в AdPlayerShell). */
 export function GlobalPlayer() {
-  const {
-    currentTrack,
-    isPlaying,
-    volume,
-    muted,
-    rate,
-    repeat,
-    shuffle,
-    position,
-    duration,
-    fullscreen,
-    toggle,
-    next,
-    prev,
-    seek,
-    setVolume,
-    toggleMute,
-    setRate,
-    setRepeat,
-    toggleShuffle,
-    setFullscreen,
-    queue,
-    stop,
-  } = usePlayerStore();
+  const currentTrack = usePlayerStore((s) => s.currentTrack);
+  const isPlaying = usePlayerStore((s) => s.isPlaying);
+  const volume = usePlayerStore((s) => s.volume);
+  const muted = usePlayerStore((s) => s.muted);
+  const rate = usePlayerStore((s) => s.rate);
+  const repeat = usePlayerStore((s) => s.repeat);
+  const shuffle = usePlayerStore((s) => s.shuffle);
+  const position = usePlayerStore((s) => s.position);
+  const duration = usePlayerStore((s) => s.duration);
+  const fullscreen = usePlayerStore((s) => s.fullscreen);
+  const toggle = usePlayerStore((s) => s.toggle);
+  const next = usePlayerStore((s) => s.next);
+  const prev = usePlayerStore((s) => s.prev);
+  const seek = usePlayerStore((s) => s.seek);
+  const setVolume = usePlayerStore((s) => s.setVolume);
+  const toggleMute = usePlayerStore((s) => s.toggleMute);
+  const setRate = usePlayerStore((s) => s.setRate);
+  const setRepeat = usePlayerStore((s) => s.setRepeat);
+  const toggleShuffle = usePlayerStore((s) => s.toggleShuffle);
+  const setFullscreen = usePlayerStore((s) => s.setFullscreen);
+  const queue = usePlayerStore((s) => s.queue);
+  const stop = usePlayerStore((s) => s.stop);
+  const sleepTimerEnd = usePlayerStore((s) => s.sleepTimerEnd);
+  const setSleepTimer = usePlayerStore((s) => s.setSleepTimer);
+  const tickSleepTimer = usePlayerStore((s) => s.tickSleepTimer);
 
   const eqEnabled = useEqStore((s) => s.enabled);
+  const user = useAuthStore((s) => s.user);
+  const isPaid = hasPaidSubscription(user);
+  const [showSleepMenu, setShowSleepMenu] = useState(false);
   const [showQueue, setShowQueue] = useState(false);
   const [showEq, setShowEq] = useState(false);
   const navigate = useNavigate();
@@ -85,11 +88,25 @@ export function GlobalPlayer() {
       setShowSend(false);
       setPlaylistOpen(false);
       setSearchUser('');
+      setShowQueue(false);
+      setShowEq(false);
       return;
     }
     setIsLiked(currentTrack.is_liked ?? false);
     setIsReposted(currentTrack.is_reposted ?? false);
+    setShowQueue(false);
+    setShowEq(false);
   }, [currentTrack?.id, currentTrack?.is_liked, currentTrack?.is_reposted]);
+
+  useEffect(() => {
+    if (!sleepTimerEnd) return;
+    const id = window.setInterval(() => tickSleepTimer(), 30000);
+    return () => window.clearInterval(id);
+  }, [sleepTimerEnd, tickSleepTimer]);
+
+  const sleepLabel = sleepTimerEnd
+    ? `${Math.max(0, Math.ceil((sleepTimerEnd - Date.now()) / 60000))} мин`
+    : null;
 
   const likeMutation = useMutation({
     mutationFn: async () => {
@@ -161,18 +178,6 @@ export function GlobalPlayer() {
     }
     fn();
   };
-
-  useEffect(() => {
-    if (!isPlaying) return;
-    const updatePosition = () => {
-      const h = usePlayerStore.getState().howl;
-      if (h?.playing()) {
-        usePlayerStore.setState({ position: h.seek() as number });
-      }
-    };
-    const id = window.setInterval(updatePosition, 50);
-    return () => clearInterval(id);
-  }, [isPlaying, currentTrack?.id]);
 
   if (!currentTrack) return null;
 
@@ -257,7 +262,7 @@ export function GlobalPlayer() {
   const controls = (
     <>
       <Waveform
-        peaks={currentTrack.waveform_data?.peaks}
+        peaks={normalizeWaveformPeaks(currentTrack.waveform_data?.peaks)}
         duration={dur}
         position={position}
         onSeek={seek}
@@ -302,26 +307,20 @@ export function GlobalPlayer() {
     </>
   );
 
+  const artistUsername = currentTrack.user?.username;
+  const artistName = currentTrack.user?.display_name ?? 'Артист';
+
   const bar = (
-    <motion.div
-      layout
-      className="border-t border-[var(--border)] bg-[var(--bg-base)]/98 backdrop-blur-xl"
-      initial={{ y: 100, opacity: 0 }}
-      animate={{ y: 0, opacity: 1 }}
-    >
+    <div className="border-t border-[var(--border)] bg-[var(--bg-base)]/98 backdrop-blur-xl">
       <div className="mx-auto grid max-w-6xl grid-cols-1 items-center gap-3 px-4 py-2.5 md:grid-cols-[240px_1fr_auto] md:gap-4">
         <div className="flex min-w-0 flex-[0_0_180px] items-center gap-3 md:flex-[0_0_260px]">
-          <motion.div
-            animate={{ scale: isPlaying ? [1, 1.02, 1] : 1 }}
-            transition={{ repeat: Infinity, duration: 2 }}
-            className="h-11 w-11 shrink-0 overflow-hidden rounded-xl shadow-md ring-1 ring-black/5 dark:ring-white/10 md:h-[52px] md:w-[52px]"
-          >
+          <div className="h-11 w-11 shrink-0 overflow-hidden rounded-xl shadow-md ring-1 ring-black/5 dark:ring-white/10 md:h-[52px] md:w-[52px]">
             {cover ? (
               <img src={cover} alt="" className="h-full w-full object-cover" draggable={false} />
             ) : (
-              <div className="h-full w-full" style={{ background: stringToColor(currentTrack.title) }} />
+              <div className="h-full w-full" style={{ background: stringToColor(currentTrack.title ?? String(currentTrack.id)) }} />
             )}
-          </motion.div>
+          </div>
           <div className="min-w-0 flex-1">
             <Link
               to={`/track/${currentTrack.id}`}
@@ -329,12 +328,18 @@ export function GlobalPlayer() {
             >
               {currentTrack.title}
             </Link>
-            <Link
-              to={`/artist/${currentTrack.user?.username}`}
-              className="mt-0.5 block truncate text-xs font-medium text-[var(--text-muted)] hover:text-[var(--primary)]"
-            >
-              {currentTrack.user?.display_name ?? 'Артист'}
-            </Link>
+            {artistUsername ? (
+              <Link
+                to={`/artist/${artistUsername}`}
+                className="mt-0.5 block truncate text-xs font-medium text-[var(--text-muted)] hover:text-[var(--primary)]"
+              >
+                {artistName}
+              </Link>
+            ) : (
+              <span className="mt-0.5 block truncate text-xs font-medium text-[var(--text-muted)]">
+                {artistName}
+              </span>
+            )}
             <div className="mt-1 flex items-center gap-0.5">
               <button
                 type="button"
@@ -391,18 +396,7 @@ export function GlobalPlayer() {
         <div className="flex flex-col gap-1 md:px-4">{controls}</div>
 
         <div className="flex flex-[0_0_auto] items-center justify-end gap-2 md:gap-2.5">
-          <select
-            value={rate}
-            onChange={(e) => setRate(Number(e.target.value))}
-            className="rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] px-2 py-1 text-xs text-[var(--text-primary)]"
-            aria-label="Скорость"
-          >
-            {RATES.map((r) => (
-              <option key={r} value={r}>
-                {r}x
-              </option>
-            ))}
-          </select>
+          <SpeedKnob rate={rate} setRate={setRate} />
           <div className="flex items-center gap-1">
             <button type="button" onClick={toggleMute} className="text-[var(--text-muted)] hover:text-[var(--text-primary)]" aria-label="Звук">
               {muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
@@ -421,13 +415,72 @@ export function GlobalPlayer() {
           <div className="relative">
             <button
               type="button"
+              onClick={() => {
+                if (!isPaid) {
+                  toast('Таймер сна доступен в Нота Плюс и Артист Про', { icon: '🔒' });
+                  return;
+                }
+                setShowSleepMenu(!showSleepMenu);
+                setShowEq(false);
+              }}
+              className={`rounded-full p-1.5 transition-colors ${
+                sleepTimerEnd
+                  ? 'bg-[var(--primary-light)] text-[var(--primary)]'
+                  : isPaid
+                  ? 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+                  : 'text-[var(--text-muted)] opacity-50'
+              }`}
+              aria-label="Таймер сна"
+              title={sleepLabel ?? (isPaid ? 'Таймер сна' : 'Только для подписчиков')}
+            >
+              {isPaid ? (
+                <Moon className="h-4 w-4" />
+              ) : (
+                <span className="relative inline-flex">
+                  <Moon className="h-4 w-4" />
+                  <Lock className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-[var(--bg-base)] text-[var(--text-muted)]" />
+                </span>
+              )}
+            </button>
+            {showSleepMenu && isPaid && (
+              <div className="absolute bottom-full right-0 z-50 mb-2 min-w-[140px] rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-2 shadow-lg">
+                {[15, 30, 45, 60].map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    className="block w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-[var(--bg-elevated)]"
+                    onClick={() => {
+                      setSleepTimer(m);
+                      setShowSleepMenu(false);
+                      toast.success(`Сон через ${m} мин`);
+                    }}
+                  >
+                    {m} мин
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  className="block w-full rounded-lg px-3 py-2 text-left text-sm text-[var(--text-muted)] hover:bg-[var(--bg-elevated)]"
+                  onClick={() => {
+                    setSleepTimer(null);
+                    setShowSleepMenu(false);
+                  }}
+                >
+                  Отключить
+                </button>
+              </div>
+            )}
+          </div>
+          <div className="relative">
+            <button
+              type="button"
               onClick={() => setShowEq(!showEq)}
               className={`rounded-full p-1.5 transition-colors ${showEq || eqEnabled ? 'bg-[var(--primary-light)] text-[var(--primary)]' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'}`}
               aria-label="Эквалайзер"
             >
               <SlidersHorizontal className="h-4 w-4" />
             </button>
-            <AnimatePresence>{showEq && <Equalizer onClose={() => setShowEq(false)} />}</AnimatePresence>
+            {showEq ? <Equalizer onClose={() => setShowEq(false)} /> : null}
           </div>
           <button
             type="button"
@@ -457,37 +510,23 @@ export function GlobalPlayer() {
       </div>
 
       {showQueue && queue.length > 0 && (
-        <div className="border-t border-[var(--border)] px-3 py-2">
-          <p className="mb-2 text-xs font-medium text-[var(--text-muted)]">Очередь ({queue.length})</p>
-          <div className="flex gap-2 overflow-x-auto pb-1">
-            {queue.map((t, i) => (
-              <div
-                key={t.id}
-                className={`shrink-0 cursor-pointer rounded-lg p-2 ${i === usePlayerStore.getState().currentIndex ? 'bg-[var(--primary-light)]' : 'bg-[var(--bg-elevated)]'}`}
-                onClick={() => usePlayerStore.getState().playTrack(t, queue)}
-              >
-                <div className="h-8 w-8 overflow-hidden rounded">
-                  {t.cover_url ? (
-                    <img src={`${base}${t.cover_url}`} alt="" className="h-full w-full object-cover" />
-                  ) : (
-                    <div className="h-full w-full" style={{ background: stringToColor(t.title) }} />
-                  )}
-                </div>
-                <p className="mt-1 truncate text-[10px]">{t.title}</p>
-              </div>
-            ))}
-          </div>
+        <div className="border-t border-[var(--border)] bg-[var(--bg-surface)]/95 px-3 py-3 backdrop-blur-sm">
+          <p className="mb-2 text-xs font-semibold text-[var(--text-secondary)]">
+            Очередь · {queue.length} {queue.length === 1 ? 'трек' : 'треков'} — перетащите для смены порядка
+          </p>
+          <QueueDragDrop />
         </div>
       )}
-    </motion.div>
+    </div>
   );
 
   if (fullscreen) {
     return (
       <>
+        <PlayerPositionTicker />
         {playlistModal}
         {sendModal}
-      <div className="fixed inset-0 z-[100] flex flex-col">
+      <div className="fixed inset-0 z-[100] flex flex-col bg-[var(--bg-base)]">
         <div
           className="absolute inset-0 bg-cover bg-center opacity-20"
           style={{
@@ -506,17 +545,13 @@ export function GlobalPlayer() {
           <X className="h-6 w-6" />
         </button>
         <div className="relative z-[1] flex flex-1 flex-col items-center justify-center gap-6 p-6 text-white md:gap-8">
-          <motion.div
-            animate={{ scale: isPlaying ? [1, 1.01, 1] : 1 }}
-            transition={{ repeat: Infinity, duration: 3 }}
-            className="h-56 w-56 overflow-hidden rounded-2xl shadow-2xl md:h-72 md:w-72"
-          >
+          <div className="h-56 w-56 overflow-hidden rounded-2xl shadow-2xl md:h-72 md:w-72">
             {cover ? (
               <img src={cover} alt="" className="h-full w-full object-cover" />
             ) : (
-              <div className="h-full w-full" style={{ background: stringToColor(currentTrack.title) }} />
+              <div className="h-full w-full" style={{ background: stringToColor(currentTrack.title ?? String(currentTrack.id)) }} />
             )}
-          </motion.div>
+          </div>
             <div className="text-center">
               <h2 className="mx-auto max-w-xl font-display text-2xl font-bold leading-tight tracking-tight md:text-3xl">
                 {currentTrack.title}
@@ -568,6 +603,7 @@ export function GlobalPlayer() {
 
   return (
     <>
+      <PlayerPositionTicker />
       {playlistModal}
       {sendModal}
       <div className="fixed bottom-0 left-0 right-0 z-50">{bar}</div>

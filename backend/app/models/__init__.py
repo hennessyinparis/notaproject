@@ -1,10 +1,12 @@
 from app.models.comment import Comment
+from app.models.donation import Donation
 from app.models.comment_like import CommentLike
 from app.models.follow import Follow
 from app.models.like import Like
 from app.models.message import Message
 from app.models.notification import Notification, NotificationType
-from app.models.playlist import Playlist, PlaylistCollaborator, PlaylistTrack
+from app.models.playlist import Playlist, PlaylistCollaborator, PlaylistLike, PlaylistTrack
+from app.models.report import Report, ReportReason, ReportStatus, ReportType
 from app.models.repost import Repost
 from app.models.royalty import Royalty, RoyaltyStatus
 from app.models.subscription import Subscription, SubscriptionPlanType
@@ -20,6 +22,7 @@ __all__ = [
     "Playlist",
     "PlaylistTrack",
     "PlaylistCollaborator",
+    "PlaylistLike",
     "Follow",
     "Like",
     "Repost",
@@ -34,4 +37,9 @@ __all__ = [
     "Royalty",
     "RoyaltyStatus",
     "Message",
+    "Report",
+    "ReportReason",
+    "ReportStatus",
+    "ReportType",
+    "Donation",
 ]

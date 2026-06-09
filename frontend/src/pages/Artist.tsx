@@ -3,18 +3,22 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ExternalLink, Heart, MapPin, MoreHorizontal, Pencil, Play, Repeat2, Sparkles, X } from 'lucide-react';
+import { ExternalLink, Flag, Gift, Heart, MapPin, MoreHorizontal, Pencil, Play, Repeat2, Shield, Sparkles, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 import { api } from '../api/client';
 import { Button } from '../components/common/Button';
+import { PageShell } from '../components/layout/PageShell';
 import { SectionHeader } from '../components/common/SectionHeader';
 import { HorizontalTrackShelf, HorizontalTrackShelfSlot } from '../components/track/HorizontalTrackShelf';
 import { TrackCard } from '../components/track/TrackCard';
 import { TRACK_ROW_GRID_WITH_PLAY_COUNT, TrackRow } from '../components/track/TrackRow';
 import { TrackRowStack } from '../components/track/TrackRowStack';
+import { DonateModal } from '../components/artist/DonateModal';
+import { ReportModal } from '../components/report/ReportModal';
 import { useAuthStore } from '../store/authStore';
 import { usePlayerStore } from '../store/playerStore';
+import { hasPaidSubscription as checkPaidSub } from '../utils/subscription';
 import type { AuthUser, Track } from '../types';
 
 type UserArtistStats = {
@@ -23,19 +27,13 @@ type UserArtistStats = {
   total_likes_received: number;
   total_reposts_received: number;
   public_tracks_count: number;
+  followers_count: number;
+  following_count: number;
 };
 import { formatNumber } from '../utils/format';
+import { stringToColor } from '../utils/color';
 import { useResolvedTheme } from '../hooks/useResolvedTheme';
 import { goToLogin } from '../utils/authNavigation';
-
-function stringToColor(str: string): string {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const hue = hash % 360;
-  return `linear-gradient(135deg, hsl(${hue}, 70%, 50%), hsl(${(hue + 40) % 360}, 80%, 30%))`;
-}
 
 function formatSubscriptionDate(dateStr: string | null) {
   if (!dateStr) return null;
@@ -94,12 +92,14 @@ export function ArtistPage() {
   const [moreMenuPos, setMoreMenuPos] = useState({ top: 0, left: 0, width: 200 });
   const [followersModalOpen, setFollowersModalOpen] = useState(false);
   const [followingModalOpen, setFollowingModalOpen] = useState(false);
+  const [donateOpen, setDonateOpen] = useState(false);
   const [editForm, setEditForm] = useState({
     display_name: '',
     bio: '',
     city: '',
     website: '',
   });
+  const [reportOpen, setReportOpen] = useState(false);
 
   const userQ = useQuery({
     queryKey: ['user', username],
@@ -135,6 +135,15 @@ export function ArtistPage() {
     queryKey: ['user-following-list', username],
     queryFn: () => api.get<AuthUser[]>(`/api/users/${username}/following`).then((r) => r.data),
     enabled: !!username && followingModalOpen,
+  });
+
+  const donateSummaryQ = useQuery({
+    queryKey: ['donation-summary', username],
+    queryFn: () =>
+      api
+        .get<{ accepts_donations: boolean }>(`/api/donations/artist/${username}/summary`)
+        .then((r) => r.data),
+    enabled: !!username,
   });
 
   const statsQ = useQuery({
@@ -278,6 +287,21 @@ export function ArtistPage() {
       </div>
     );
   const u = userQ.data;
+  if (u?.is_admin && effectiveUser?.username.toLowerCase() === username?.toLowerCase()) {
+    return (
+      <PageShell title="Администратор" description="Профиль администратора">
+        <div className="rounded-card border border-[var(--border)] bg-[var(--bg-surface)] p-8 text-center">
+          <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-[var(--primary-light)] text-[var(--primary)]">
+            <Shield className="h-10 w-10" />
+          </div>
+          <h1 className="font-display text-2xl font-bold text-[var(--text-primary)]">Администратор</h1>
+          <Link to="/admin/dashboard" className="mt-4 inline-block rounded-xl bg-[var(--primary)] px-6 py-2.5 text-sm font-semibold text-white">
+            Перейти в админ-панель
+          </Link>
+        </div>
+      </PageShell>
+    );
+  }
   if (!u)
     return (
       <div className="rounded-card border border-[var(--border)] bg-[var(--bg-surface)] p-8">
@@ -315,14 +339,11 @@ export function ArtistPage() {
   };
 
   const stats = statsQ.data;
-  const followersCount = followersQ.data?.count ?? 0;
-  const followingCount = followingCountQ.data?.count ?? 0;
+  const followersCount = statsQ.data?.followers_count ?? followersQ.data?.count ?? 0;
+  const followingCount = statsQ.data?.following_count ?? followingCountQ.data?.count ?? 0;
   const planBadge = primarySubscriptionBadge(u, heroDark);
-  const expiresLabel = formatSubscriptionDate(u.subscription_expires_at);
-  const hasPaidSubscription =
-    u.subscription_type === 'plus' ||
-    u.subscription_type === 'student' ||
-    u.artist_subscription_type === 'pro';
+  const expiresLabel = formatSubscriptionDate(u.subscription_expires_at ?? null);
+  const hasPaidSubscription = checkPaidSub(u);
   const showSubscriptionAside = hasPaidSubscription;
 
   const statBox = clsx(
@@ -406,10 +427,13 @@ export function ArtistPage() {
             )}
             onClick={() => {
               setMoreOpen(false);
-              toast.success('Жалоба отправлена');
+              setReportOpen(true);
             }}
           >
-            Пожаловаться
+            <span className="flex items-center gap-2">
+              <Flag className="h-4 w-4 text-red-400" />
+              Пожаловаться
+            </span>
           </button>
         )}
       </div>,
@@ -419,6 +443,13 @@ export function ArtistPage() {
   return (
     <div className="mx-auto max-w-5xl space-y-10 pb-8">
       {moreMenuPortal}
+      <ReportModal open={reportOpen} onClose={() => setReportOpen(false)} reportType="user" targetId={u.id} targetLabel={u.display_name || u.username} />
+      <DonateModal
+        open={donateOpen}
+        onClose={() => setDonateOpen(false)}
+        artistUsername={u.username}
+        artistName={u.display_name || u.username}
+      />
       {/* Шапка профиля: тёмная — блюр; светлая — карточка с переменными темы */}
       <div
         className={clsx(
@@ -607,7 +638,7 @@ export function ArtistPage() {
                         <Pencil className="h-4 w-4 shrink-0" />
                         Редактировать профиль
                       </button>
-                    ) : (
+                    ) : effectiveUser?.is_admin ? null : (
                       <>
                         <button
                           type="button"
@@ -636,6 +667,21 @@ export function ArtistPage() {
                         >
                           Сообщение
                         </Link>
+                        {donateSummaryQ.data?.accepts_donations && (
+                          <button
+                            type="button"
+                            onClick={() => setDonateOpen(true)}
+                            className={clsx(
+                              'inline-flex h-11 min-h-11 shrink-0 items-center justify-center gap-2 rounded-full border px-5 text-sm font-semibold leading-none transition sm:text-[15px]',
+                              heroDark
+                                ? 'border-amber-400/50 bg-amber-500/20 text-white hover:bg-amber-500/30'
+                                : 'border-amber-500/40 bg-amber-500/10 text-amber-700 hover:bg-amber-500/20 dark:text-amber-300'
+                            )}
+                          >
+                            <Gift className="h-4 w-4 shrink-0" />
+                            Донат
+                          </button>
+                        )}
                       </>
                     )}
 
@@ -792,7 +838,7 @@ export function ArtistPage() {
                     {tracksQ.data[0].title}
                   </Link>
                   <p className="mt-1 text-sm text-[var(--text-secondary)]">
-                    {new Date(tracksQ.data[0].created_at).getFullYear()} ·{' '}
+                    {tracksQ.data[0].created_at ? new Date(tracksQ.data[0].created_at).getFullYear() : '—'} ·{' '}
                     <Link to={`/artist/${u.username}`} className="hover:text-[var(--primary)] hover:underline">
                       {u.display_name}
                     </Link>
@@ -992,7 +1038,7 @@ export function ArtistPage() {
               <p className="mt-6 text-xs text-[var(--text-muted)]">
                 На платформе с{' '}
                 <span className="font-medium text-[var(--text-secondary)]">
-                  {new Date(u.created_at).toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' })}
+                  {u.created_at ? new Date(u.created_at).toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' }) : '—'}
                 </span>
               </p>
             </div>

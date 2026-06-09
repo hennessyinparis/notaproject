@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 
 import { useAuthStore } from '../../store/authStore';
+import { isArtistPro } from '../../utils/subscription';
 
 function useAuthHydrated() {
   const [ok, setOk] = useState(() => useAuthStore.persist.hasHydrated());
@@ -42,6 +43,6 @@ export function ProRoute({ children }: { children: React.ReactNode }) {
     return <Navigate to="/login" replace state={{ from: loc.pathname + loc.search }} />;
   }
 
-  if (user?.artist_subscription_type !== 'pro') return <Navigate to="/studio" replace />;
+  if (!isArtistPro(user)) return <Navigate to="/studio" replace />;
   return <>{children}</>;
 }

@@ -5,7 +5,9 @@ import toast from 'react-hot-toast';
 
 import { api, setAuthHeader } from '../api/client';
 import { Button } from '../components/common/Button';
+import { CopyrightAgreement } from '../components/legal/CopyrightAgreement';
 import { useAuthStore } from '../store/authStore';
+import { getErrorMessage } from '../utils/error';
 
 function useDebouncedValue(value: string, ms: number): string {
   const [v, setV] = useState(value);
@@ -16,16 +18,13 @@ function useDebouncedValue(value: string, ms: number): string {
   return v;
 }
 
-function getErrorMessage(error: unknown, fallback: string) {
-  const err = error as { response?: { data?: { detail?: string; message?: string } }; message?: string };
-  return err?.response?.data?.detail || err?.response?.data?.message || err?.message || fallback;
-}
-
 export function Register() {
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
+  const [acceptTerms, setAcceptTerms] = useState(false);
+  const [acceptCopyright, setAcceptCopyright] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const accessToken = useAuthStore((s) => s.accessToken);
@@ -48,8 +47,13 @@ export function Register() {
   });
 
   const reg = useMutation({
-    mutationFn: (vars: { username: string; email: string; password: string }) =>
-      api.post('/api/auth/register', vars),
+    mutationFn: (vars: {
+      username: string;
+      email: string;
+      password: string;
+      accept_terms: boolean;
+      accept_content_responsibility: boolean;
+    }) => api.post('/api/auth/register', vars),
     onSuccess: async (_, vars) => {
       const loginRes = await api.post('/api/auth/login', { username: vars.username, password: vars.password });
       const { access_token, refresh_token } = loginRes.data;
@@ -118,6 +122,13 @@ export function Register() {
             onChange={(e) => setConfirm(e.target.value)}
             autoComplete="new-password"
           />
+          <CopyrightAgreement
+            variant="register"
+            acceptTerms={acceptTerms}
+            acceptCopyright={acceptCopyright}
+            onAcceptTerms={setAcceptTerms}
+            onAcceptCopyright={setAcceptCopyright}
+          />
           <Button
             className="w-full"
             loading={reg.isPending}
@@ -134,10 +145,22 @@ export function Register() {
                 toast.error('Пароли не совпадают');
                 return;
               }
-              reg.mutate({ username: trimmedUser, email, password });
+              if (!acceptTerms || !acceptCopyright) {
+                toast.error('Подтвердите соглашения');
+                return;
+              }
+              reg.mutate({
+                username: trimmedUser,
+                email,
+                password,
+                accept_terms: true,
+                accept_content_responsibility: true,
+              });
             }}
             disabled={
               reg.isPending ||
+              !acceptTerms ||
+              !acceptCopyright ||
               (trimmedUser.length >= 3 &&
                 (trimmedUser !== debouncedUser || nameAvailQ.isFetching || nameAvailQ.data?.available === false))
             }

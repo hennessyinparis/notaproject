@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, func
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -13,6 +13,7 @@ class Like(Base):
             "(track_id IS NOT NULL AND playlist_id IS NULL) OR (track_id IS NULL AND playlist_id IS NOT NULL)",
             name="ck_like_one_target",
         ),
+        UniqueConstraint("user_id", "track_id", name="uq_like_user_track"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)

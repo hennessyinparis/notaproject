@@ -9,6 +9,7 @@ import { api } from '../api/client';
 import { PageShell } from '../components/layout/PageShell';
 import { Button } from '../components/common/Button';
 import { EmptyState } from '../components/common/EmptyState';
+import { useAuthStore } from '../store/authStore';
 import { TrackRow } from '../components/track/TrackRow';
 import { TrackRowStack } from '../components/track/TrackRowStack';
 import type { Track } from '../types';
@@ -19,23 +20,29 @@ const apiBase = import.meta.env.VITE_API_URL || '';
 export function Library() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const currentUser = useAuthStore((s) => s.user);
   const [tab, setTab] = useState<'likes' | 'reposts' | 'playlists'>('likes');
   const [createPlOpen, setCreatePlOpen] = useState(false);
   const [newPlTitle, setNewPlTitle] = useState('');
+  const isAdmin = !!currentUser?.is_admin;
+
   const likesQ = useQuery({
     queryKey: ['library-liked-tracks'],
     queryFn: () => api.get<Track[]>('/api/users/me/liked-tracks').then((r) => r.data),
     staleTime: 0,
     refetchOnMount: 'always',
+    enabled: !isAdmin,
   });
   const repostsQ = useQuery({
     queryKey: ['library-reposted-tracks'],
     queryFn: () => api.get<Track[]>('/api/users/me/reposted-tracks').then((r) => r.data),
     staleTime: 0,
     refetchOnMount: 'always',
+    enabled: !isAdmin,
   });
   const playlistsQ = useQuery({
     queryKey: ['playlists', 'mine'],
+    enabled: !isAdmin,
     queryFn: () =>
       api
         .get<
@@ -69,6 +76,14 @@ export function Library() {
     },
     onError: () => toast.error('Не удалось создать плейлист'),
   });
+
+  if (isAdmin) {
+    return (
+      <PageShell title="Библиотека" description="Недоступно для администраторов">
+        <EmptyState title="Нет доступа" description="Администраторы не используют библиотеку." />
+      </PageShell>
+    );
+  }
 
   return (
     <PageShell

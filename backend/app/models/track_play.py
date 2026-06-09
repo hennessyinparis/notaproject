@@ -2,7 +2,7 @@ import enum
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, func
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, func, Index
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -17,6 +17,12 @@ class TrackPlaySource(str, enum.Enum):
 
 class TrackPlay(Base):
     __tablename__ = "track_plays"
+
+    __table_args__ = (
+        Index('ix_track_plays_created_at', 'created_at'),
+        Index('ix_track_plays_track_id_created_at', 'track_id', 'created_at'),
+        Index('ix_track_plays_listener_id_track_id', 'listener_id', 'track_id'),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     track_id: Mapped[int] = mapped_column(ForeignKey("tracks.id", ondelete="CASCADE"), index=True)

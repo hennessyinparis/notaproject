@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 class UserBase(BaseModel):
@@ -11,6 +11,17 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     password: str = Field(min_length=8, max_length=128)
+    accept_terms: bool = Field(description="Принято пользовательское соглашение")
+    accept_content_responsibility: bool = Field(
+        description="Принята ответственность за пользовательский контент"
+    )
+
+    @field_validator("accept_terms", "accept_content_responsibility")
+    @classmethod
+    def must_accept(cls, v: bool) -> bool:
+        if not v:
+            raise ValueError("Необходимо принять условия")
+        return v
 
 
 class UserUpdate(BaseModel):
@@ -19,6 +30,8 @@ class UserUpdate(BaseModel):
     city: Optional[str] = None
     website: Optional[str] = None
     avatar_url: Optional[str] = None
+    messages_privacy: Optional[str] = Field(None, pattern=r"^(everyone|followers|nobody)$")
+    profile_visibility: Optional[str] = Field(None, pattern=r"^(public|followers|private)$")
 
 
 class UserPublic(BaseModel):
@@ -36,6 +49,9 @@ class UserPublic(BaseModel):
     subscription_type: str
     artist_subscription_type: str
     subscription_expires_at: Optional[datetime] = None
+    student_verification_status: str = "none"
+    messages_privacy: str = "everyone"
+    profile_visibility: str = "public"
     created_at: datetime
 
     model_config = {"from_attributes": True}

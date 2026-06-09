@@ -61,6 +61,11 @@ services:
       MEDIA_DIR: media
       BASE_URL: http://localhost:8000
       CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+      CSP_ENABLED: "true"
+      RATE_LIMIT_ENABLED: "true"
+      MAX_TRACK_SIZE_MB: 200
+      MAX_COVER_SIZE_MB: 10
+      SMTP_FROM: noreply@nota.app
     volumes:
       - ./backend:/app
       - media_data:/app/media

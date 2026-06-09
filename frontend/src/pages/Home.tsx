@@ -108,7 +108,9 @@ export function Home() {
 
       <section>
         <SectionHeader title="Сейчас популярно" href="/search" />
-        {trending.data?.length === 0 ? (
+        {trending.isError ? (
+          <EmptyState title="Не удалось загрузить треки" description="Проверь, что бэкенд запущен на порту 8000" />
+        ) : trending.data?.length === 0 ? (
           <EmptyState title="Пока нет треков" description="Будь первым — загрузи свой трек!" action={{ label: 'Загрузить', href: '/upload' }} />
         ) : (
           <HorizontalTrackShelf aria-label="Популярные треки">
@@ -129,7 +131,9 @@ export function Home() {
 
       <section>
         <SectionHeader title="Новые релизы" href="/search" />
-        {fresh.data?.length === 0 ? (
+        {fresh.isError ? (
+          <EmptyState title="Не удалось загрузить релизы" description="Проверь, что бэкенд запущен на порту 8000" />
+        ) : fresh.data?.length === 0 ? (
           <EmptyState title="Новых релизов пока нет" description="Скоро здесь появятся свежие треки" />
         ) : (
           <HorizontalTrackShelf aria-label="Новые релизы">

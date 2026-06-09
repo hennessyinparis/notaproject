@@ -38,7 +38,15 @@ const PLANS = [
     period: 'в месяц',
     color: 'var(--primary)',
     badge: 'Популярное',
-    features: ['Без рекламы', '320 kbps качество', 'Офлайн прослушивание', 'Скачивание треков', 'Приоритетная поддержка'],
+    features: [
+      'Без рекламы',
+      'Поток высокого качества (320 kbps)',
+      'Офлайн-кэш треков',
+      'Скачивание разрешённых треков',
+      'Эквалайзер с пресетами',
+      'Таймер сна',
+      'Приоритетная поддержка',
+    ],
     canBuy: true,
   },
   {
@@ -48,7 +56,13 @@ const PLANS = [
     period: 'в месяц',
     color: 'var(--success)',
     badge: 'Скидка 50%',
-    features: ['Всё из Нота Плюс', 'Скидка 50% для студентов', 'Нужно подтверждение статуса студента'],
+    features: [
+      'Всё из Нота Плюс',
+      'Эквалайзер с пресетами',
+      'Таймер сна',
+      'Скидка 50% для студентов',
+      'Требуется подтверждение статуса студента',
+    ],
     canBuy: true,
   },
   {
@@ -57,7 +71,15 @@ const PLANS = [
     price: '599 ₽',
     period: 'в месяц',
     color: 'var(--secondary)',
-    features: ['Неограниченная загрузка треков', 'Расширенная аналитика', 'Монетизация «Волна»', 'Замена трека без потери статистики'],
+    features: [
+      'Неограниченная загрузка треков',
+      'Детальная аналитика',
+      'Монетизация «Волна»',
+      'Эквалайзер с пресетами',
+      'Таймер сна',
+      'Роялти за прослушивания',
+      'Замена трека без потери статистики',
+    ],
     canBuy: true,
   },
 ] satisfies Plan[];
@@ -93,9 +115,11 @@ export function Subscriptions() {
   const [carouselPaused, setCarouselPaused] = useState(false);
 
   const [showPayModal, setShowPayModal] = useState(false);
-  const [payStep, setPayStep] = useState<'choose' | 'processing' | 'done'>('choose');
+  const [payStep, setPayStep] = useState<'choose' | 'student_doc' | 'processing' | 'done'>('choose');
   const [selectedPlan, setSelectedPlan] = useState<string>('');
   const [selectedPlanName, setSelectedPlanName] = useState<string>('');
+  const [studentFile, setStudentFile] = useState<File | null>(null);
+  const [studentUploading, setStudentUploading] = useState(false);
 
   useEffect(() => {
     const id = getCurrentPlanId(user ?? null);
@@ -146,6 +170,8 @@ export function Subscriptions() {
     cancelMutation.mutate();
   };
 
+  const studentStatus = user?.student_verification_status ?? 'none';
+
   const handleBuy = (planId: string, planName: string) => {
     if (!accessToken) {
       goToLogin(navigate);
@@ -153,11 +179,49 @@ export function Subscriptions() {
     }
     setSelectedPlan(planId);
     setSelectedPlanName(planName);
-    setPayStep('choose');
+    setStudentFile(null);
+    if (planId === 'listener_student' && studentStatus !== 'approved') {
+      setPayStep('student_doc');
+    } else {
+      setPayStep('choose');
+    }
     setShowPayModal(true);
   };
 
+  const uploadStudentDoc = async () => {
+    if (!studentFile) {
+      toast.error('Выберите файл');
+      return;
+    }
+    setStudentUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', studentFile);
+      const { data } = await api.post<AuthUser>('/api/users/me/student-verification', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      setUser(data);
+      queryClient.invalidateQueries({ queryKey: ['me'] });
+      if (data.student_verification_status === 'approved') {
+        toast.success('Статус студента подтверждён — можно оплатить');
+        setPayStep('choose');
+      } else {
+        toast.success('Документ отправлен на проверку. После одобрения администратором завершите оплату.');
+        setShowPayModal(false);
+      }
+    } catch {
+      toast.error('Не удалось загрузить документ');
+    } finally {
+      setStudentUploading(false);
+    }
+  };
+
   const startPay = async (method: string) => {
+    if (selectedPlan === 'listener_student' && (user?.student_verification_status ?? 'none') !== 'approved') {
+      toast.error('Сначала дождитесь одобрения статуса студента');
+      setPayStep('student_doc');
+      return;
+    }
     setPayStep('processing');
     await new Promise((r) => setTimeout(r, 1200));
     try {
@@ -175,6 +239,10 @@ export function Subscriptions() {
     }
   };
 
+  const expiresAt = user?.subscription_expires_at ? new Date(user.subscription_expires_at) : null;
+  const daysLeft = expiresAt ? Math.ceil((expiresAt.getTime() - Date.now()) / 86_400_000) : null;
+  const showExpiryWarning = daysLeft !== null && daysLeft > 0 && daysLeft <= 7 && currentPlanId !== 'free';
+
   return (
     <div>
       {payStep === 'done' && <Confetti recycle={false} numberOfPieces={220} />}
@@ -182,6 +250,19 @@ export function Subscriptions() {
       <p className="mt-2 max-w-2xl text-[var(--text-secondary)]">
         Одновременно действует только один платный план. Чтобы сменить тариф — отмените текущую подписку и оформите другой.
       </p>
+
+      {showExpiryWarning && (
+        <div className="mt-4 flex items-center gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
+          <span className="font-bold">Подписка истекает</span>
+          <span>через {daysLeft} {daysLeft === 1 ? 'день' : daysLeft <= 4 ? 'дня' : 'дней'} — {expiresAt?.toLocaleDateString('ru-RU')}</span>
+        </div>
+      )}
+      {expiresAt && daysLeft !== null && daysLeft <= 0 && currentPlanId !== 'free' && (
+        <div className="mt-4 flex items-center gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-700 dark:text-red-400">
+          <span className="font-bold">Подписка истекла</span>
+          <span>{expiresAt.toLocaleDateString('ru-RU')} — оформите новую</span>
+        </div>
+      )}
 
       <section
         className="relative mx-auto mt-10 max-w-6xl"
@@ -375,6 +456,68 @@ export function Subscriptions() {
       {showPayModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 12 }}>
           <div style={{ background: 'var(--bg-surface)', borderRadius: 20, padding: 32, width: 380, maxWidth: '100%', textAlign: 'center' }}>
+            {payStep === 'student_doc' && (
+              <>
+                <h3 style={{ fontSize: 20, fontWeight: 700, marginBottom: 12 }}>Подтверждение статуса студента</h3>
+                <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 16 }}>
+                  Загрузите студенческий билет или справку из учебного заведения. После проверки вы сможете оформить тариф «Нота Студент».
+                </p>
+                {studentStatus === 'pending' && (
+                  <p style={{ fontSize: 13, color: 'var(--warning)', marginBottom: 12 }}>
+                    Документ уже на проверке. Дождитесь решения администратора.
+                  </p>
+                )}
+                <input
+                  type="file"
+                  accept="image/*,.pdf"
+                  onChange={(e) => setStudentFile(e.target.files?.[0] ?? null)}
+                  style={{ display: 'block', width: '100%', marginBottom: 12, fontSize: 14 }}
+                />
+                <button
+                  type="button"
+                  onClick={() => void uploadStudentDoc()}
+                  disabled={studentUploading || !studentFile}
+                  style={{
+                    display: 'block',
+                    width: '100%',
+                    padding: '14px 20px',
+                    marginBottom: 10,
+                    background: 'var(--primary)',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: 12,
+                    fontSize: 15,
+                    cursor: studentUploading ? 'wait' : 'pointer',
+                    opacity: studentFile ? 1 : 0.5,
+                  }}
+                >
+                  {studentUploading ? 'Загрузка…' : 'Отправить на проверку'}
+                </button>
+                {studentStatus === 'approved' && (
+                  <button
+                    type="button"
+                    onClick={() => setPayStep('choose')}
+                    style={{
+                      display: 'block',
+                      width: '100%',
+                      padding: '14px 20px',
+                      marginBottom: 10,
+                      background: 'var(--success)',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: 12,
+                      fontSize: 15,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Перейти к оплате
+                  </button>
+                )}
+                <button type="button" onClick={() => setShowPayModal(false)} style={{ marginTop: 4, background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
+                  Отмена
+                </button>
+              </>
+            )}
             {payStep === 'choose' && (
               <>
                 <h3 style={{ fontSize: 20, fontWeight: 700, marginBottom: 20 }}>Способ оплаты</h3>

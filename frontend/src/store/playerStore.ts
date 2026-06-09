@@ -2,13 +2,36 @@ import { Howl, Howler } from 'howler';
 import { create } from 'zustand';
 
 import { api } from '../api/client';
+import type { AudioAd } from '../types/ad';
 import type { Track } from '../types';
+import {
+  adStreamUrl,
+  fetchPlayableAds,
+  nextAdThreshold,
+  pickRandomAd,
+  shouldShowAudioAds,
+} from '../utils/playerAds';
 import { useAuthStore } from './authStore';
 import { useEqStore } from './eqStore';
 
 export type RepeatMode = 'off' | 'one' | 'all';
 
 export const RATES = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
+
+function normalizeTrack(t: Track): Track {
+  return {
+    ...t,
+    title: t.title?.trim() || 'Без названия',
+    duration_seconds: Number.isFinite(t.duration_seconds) ? t.duration_seconds : 0,
+    user: t.user
+      ? {
+          ...t.user,
+          username: t.user.username?.trim() || 'artist',
+          display_name: t.user.display_name?.trim() || 'Артист',
+        }
+      : t.user,
+  };
+}
 
 function streamUrl(trackId: number) {
   const base = import.meta.env.VITE_API_URL || '';
@@ -25,6 +48,10 @@ interface PlayerState {
   queue: Track[];
   currentIndex: number;
   currentTrack: Track | null;
+  currentAd: AudioAd | null;
+  tracksSinceAd: number;
+  adThreshold: number;
+  afterAdCallback: (() => void) | null;
   isPlaying: boolean;
   volume: number;
   muted: boolean;
@@ -37,6 +64,10 @@ interface PlayerState {
   fullscreen: boolean;
   howl: Howl | null;
   playTrack: (t: Track, queue?: Track[]) => void;
+  playAd: (ad: AudioAd, onComplete: () => void) => void;
+  skipAd: (runCallback?: boolean) => void;
+  maybePlayAdThen: (continueFn: () => void) => void;
+  advanceToNextTrack: () => void;
   toggle: () => void;
   pause: () => void;
   stop: () => void;
@@ -61,6 +92,10 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   queue: [],
   currentIndex: 0,
   currentTrack: null,
+  currentAd: null,
+  tracksSinceAd: 0,
+  adThreshold: nextAdThreshold(),
+  afterAdCallback: null,
   isPlaying: false,
   volume: 0.9,
   muted: false,
@@ -70,13 +105,92 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   position: 0,
   duration: 0,
   sleepTimerEnd: null,
-  fullscreen: false,
-  howl: null,
+      fullscreen: false,
+      howl: null,
 
-  playTrack: (t, q) => {
+  playAd: (ad, onComplete) => {
     const state = get();
     const prev = state.howl;
-    set({ howl: null });
+    set({ howl: null, currentAd: ad, afterAdCallback: onComplete });
+    prev?.unload();
+    const howl = new Howl({
+      src: [adStreamUrl(ad.id)],
+      html5: true,
+      format: ['mp3', 'mpeg', 'wav', 'ogg'],
+      volume: state.muted ? 0 : state.volume,
+      rate: 1,
+      onload: function () {
+        if (get().howl !== howl) return;
+        const d = howl.duration() || ad.duration_seconds || 0;
+        set({ duration: d });
+      },
+      onend: () => {
+        if (get().howl !== howl) return;
+        const cb = get().afterAdCallback;
+        set({ currentAd: null, afterAdCallback: null, howl: null });
+        howl.unload();
+        cb?.();
+      },
+    });
+    howl.on('play', () => {
+      if (get().howl !== howl) return;
+      set({ isPlaying: true });
+    });
+    howl.on('pause', () => {
+      if (get().howl !== howl) return;
+      set({ isPlaying: false });
+    });
+    set({ howl, position: 0, duration: ad.duration_seconds ?? 0 });
+    void resumeAudioContext().then(() => {
+      if (get().howl !== howl) return;
+      howl.play();
+    });
+  },
+
+  skipAd: (runCallback = true) => {
+    const { currentAd, afterAdCallback, howl } = get();
+    if (!currentAd) return;
+    howl?.stop();
+    howl?.unload();
+    const cb = afterAdCallback;
+    set({ currentAd: null, afterAdCallback: null, howl: null, isPlaying: false, position: 0 });
+    if (runCallback) cb?.();
+  },
+
+  maybePlayAdThen: (continueFn) => {
+    void (async () => {
+      if (!shouldShowAudioAds()) {
+        continueFn();
+        return;
+      }
+      const { tracksSinceAd, adThreshold } = get();
+      const nextCount = tracksSinceAd + 1;
+      if (nextCount < adThreshold) {
+        set({ tracksSinceAd: nextCount });
+        continueFn();
+        return;
+      }
+      set({ tracksSinceAd: 0, adThreshold: nextAdThreshold() });
+      const ads = await fetchPlayableAds();
+      const ad = pickRandomAd(ads);
+      if (!ad) {
+        continueFn();
+        return;
+      }
+      get().playAd(ad, continueFn);
+    })();
+  },
+
+  playTrack: (t, q) => {
+    t = normalizeTrack(t);
+    const state = get();
+    const prev = state.howl;
+    set({
+      howl: null,
+      currentAd: null,
+      afterAdCallback: null,
+      fullscreen: false,
+    });
     prev?.unload();
     const queue = q?.length ? q : [t];
     const idx = queue.findIndex((x) => x.id === t.id);
@@ -103,9 +217,14 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
           });
           return;
         }
-        get().next();
+        get().maybePlayAdThen(() => get().advanceToNextTrack());
       },
     });
+    try {
+      for (const s of (howl as any)._sounds || []) {
+        if (s._node) s._node.preservesPitch = false;
+      }
+    } catch {}
     howl.on('play', () => {
       if (get().howl !== howl) return;
       set({ isPlaying: true });
@@ -132,11 +251,15 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       if (get().howl !== howl) return;
       howl.play();
     });
-    void api.post(`/api/tracks/${t.id}/play`, {
-      listened_seconds: 0,
-      is_complete: false,
-      source: 'feed',
-    });
+    void api
+      .post(`/api/tracks/${t.id}/play`, {
+        listened_seconds: 0,
+        is_complete: false,
+        source: 'feed',
+      })
+      .catch(() => {
+        /* статистика не должна ломать воспроизведение */
+      });
   },
 
   toggle: () => {
@@ -160,6 +283,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     h?.unload();
     set({
       currentTrack: null,
+      currentAd: null,
+      afterAdCallback: null,
       howl: null,
       isPlaying: false,
       position: 0,
@@ -169,20 +294,24 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     });
   },
 
-  next: () => {
+  advanceToNextTrack: () => {
     const { queue, currentIndex, repeat, shuffle, currentTrack } = get();
-    if (!queue.length || !currentTrack) return;
+    if (!queue.length) return;
+    const refTrack = currentTrack ?? queue[currentIndex];
+    if (!refTrack) return;
     let ni = currentIndex + 1;
     if (shuffle) {
       if (queue.length <= 1) return;
       do {
         ni = Math.floor(Math.random() * queue.length);
-      } while (queue[ni].id === currentTrack.id);
+      } while (queue[ni].id === refTrack.id);
     } else if (ni >= queue.length) {
       if (repeat === 'all') ni = 0;
       else {
-        get().howl?.stop();
-        set({ isPlaying: false });
+        const h = get().howl;
+        h?.stop();
+        h?.unload();
+        set({ isPlaying: false, howl: null, currentTrack: null, position: 0, duration: 0 });
         return;
       }
     }
@@ -190,7 +319,20 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     if (t) get().playTrack(t, queue);
   },
 
+  next: () => {
+    if (get().currentAd) {
+      get().skipAd();
+      return;
+    }
+    const { queue, currentTrack } = get();
+    if (!queue.length || !currentTrack) return;
+    get().maybePlayAdThen(() => get().advanceToNextTrack());
+  },
+
   prev: () => {
+    if (get().currentAd) {
+      get().skipAd(false);
+    }
     const { queue, currentIndex, position } = get();
     if (!queue.length) return;
     if (position > 3) {
@@ -222,9 +364,16 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   },
 
   setRate: (r) => {
-    const howl = get().howl;
+    const state = get();
+    const howl = state.howl;
     if (howl) {
       howl.rate(r);
+      // Отключаем preservePitch чтобы скорость меняла тональность (как nightcore/slowed)
+      try {
+        for (const s of (howl as any)._sounds || []) {
+          if (s._node) s._node.preservesPitch = false;
+        }
+      } catch {}
     }
     set({ rate: r });
   },
@@ -273,7 +422,6 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     }
     const end = Date.now() + minutes * 60 * 1000;
     set({ sleepTimerEnd: end });
-    sleepInterval = setInterval(() => get().tickSleepTimer(), 1000);
   },
 
   tickSleepTimer: () => {

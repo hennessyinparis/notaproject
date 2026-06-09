@@ -20,3 +20,4 @@ class Comment(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     parent: Mapped[Optional["Comment"]] = relationship("Comment", remote_side="Comment.id", backref="replies")
+    user: Mapped["User"] = relationship("User", lazy="selectin")

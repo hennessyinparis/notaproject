@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Heart, Link2, ListMusic, MessageCircle, MoreHorizontal, Music2, Pause, Play, Repeat, Repeat2, Share2 } from 'lucide-react';
+import { Flag, Heart, Link2, ListMusic, MessageCircle, MoreHorizontal, Music2, Pause, Play, Repeat, Repeat2, Share2 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useNavigate } from 'react-router-dom';
@@ -10,9 +10,11 @@ import { useAuthStore } from '../../store/authStore';
 import { goToLogin } from '../../utils/authNavigation';
 import { usePlayerStore } from '../../store/playerStore';
 import type { Track } from '../../types';
+import { stringToGradient } from '../../utils/color';
 import { formatDuration, formatNumber } from '../../utils/format';
 import { invalidateMyProfileLikes, invalidateMyProfileReposts } from '../../utils/profileEngagementCache';
 import { AddToPlaylistModal } from './AddToPlaylistModal';
+import { ReportModal } from '../report/ReportModal';
 
 /** Сетка строки «Популярные треки» — шапка в Artist.tsx должна совпадать по колонкам. */
 export const TRACK_ROW_GRID_WITH_PLAY_COUNT =
@@ -25,13 +27,6 @@ interface TrackRowProps {
   showAlbum?: boolean;
   /** Показать число прослушиваний (как в топе Spotify) */
   showPlayCount?: boolean;
-}
-
-function stringToGradient(str: string): string {
-  let hash = 0;
-  for (let i = 0; i < str.length; i += 1) hash = str.charCodeAt(i) + ((hash << 5) - hash);
-  const hue = Math.abs(hash) % 360;
-  return `linear-gradient(135deg, hsl(${hue}, 70%, 55%), hsl(${(hue + 42) % 360}, 72%, 38%))`;
 }
 
 function patchTrackLikeInList(list: Track[] | undefined, trackId: number, liked: boolean): Track[] | undefined {
@@ -104,6 +99,7 @@ export function TrackRow({ track, index, queue, showPlayCount = false }: TrackRo
   const [menuOpen, setMenuOpen] = useState(false);
   const [playlistOpen, setPlaylistOpen] = useState(false);
   const [sendOpen, setSendOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
   const [searchUser, setSearchUser] = useState('');
   const moreBtnRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -117,20 +113,27 @@ export function TrackRow({ track, index, queue, showPlayCount = false }: TrackRo
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const accessToken = useAuthStore((s) => s.accessToken);
+  const currentUser = useAuthStore((s) => s.user);
   const playTrack = usePlayerStore((s) => s.playTrack);
-  const toggle = usePlayerStore((s) => s.toggle);
-  const currentTrack = usePlayerStore((s) => s.currentTrack);
-  const isPlaying = usePlayerStore((s) => s.isPlaying);
   const repeatMode = usePlayerStore((s) => s.repeat);
   const setRepeat = usePlayerStore((s) => s.setRepeat);
-  const isCurrentTrack = currentTrack != null && Number(currentTrack.id) === Number(track.id);
+  const trackId = Number(track.id);
+  const isCurrentTrack = usePlayerStore((s) => s.currentTrack != null && Number(s.currentTrack.id) === trackId);
+  const isPlaying = usePlayerStore(
+    (s) => s.isPlaying && s.currentTrack != null && Number(s.currentTrack.id) === trackId
+  );
 
   const base = import.meta.env.VITE_API_URL || '';
   const cover = track.cover_url ? `${base}${track.cover_url}` : null;
 
   const handlePlay = () => {
-    if (isCurrentTrack) toggle();
-    else playTrack(track, queue);
+    const s = usePlayerStore.getState();
+    const isCurrent = s.currentTrack != null && Number(s.currentTrack.id) === trackId;
+    if (isCurrent && s.isPlaying) {
+      s.toggle();
+    } else {
+      s.playTrack(track, queue);
+    }
   };
 
   const updateMenuPos = () => {
@@ -288,6 +291,16 @@ export function TrackRow({ track, index, queue, showPlayCount = false }: TrackRo
           <Link2 className="h-4 w-4 shrink-0 text-[var(--text-muted)]" aria-hidden />
           Копировать ссылку
         </button>
+        {accessToken && !currentUser?.is_admin ? (
+          <button
+            type="button"
+            className={menuItemCls}
+            onClick={() => { setMenuOpen(false); setReportOpen(true); }}
+          >
+            <Flag className="h-4 w-4 shrink-0 text-red-400" aria-hidden />
+            Пожаловаться
+          </button>
+        ) : null}
       </div>,
       document.body
     );
@@ -352,6 +365,7 @@ export function TrackRow({ track, index, queue, showPlayCount = false }: TrackRo
   return (
     <>
       <AddToPlaylistModal trackId={track.id} open={playlistOpen} onClose={() => setPlaylistOpen(false)} />
+      <ReportModal open={reportOpen} onClose={() => setReportOpen(false)} reportType="track" targetId={Number(track.id)} targetLabel={track.title} />
       {menuPortal}
       {sendPortal}
       <div
@@ -387,7 +401,7 @@ export function TrackRow({ track, index, queue, showPlayCount = false }: TrackRo
           {cover ? (
             <img src={cover} alt="" className="h-full w-full object-cover" draggable={false} />
           ) : (
-            <div className="h-full w-full" style={{ background: stringToGradient(track.title) }} />
+            <div className="h-full w-full" style={{ background: stringToGradient(track.title ?? String(track.id)) }} />
           )}
         </Link>
 
@@ -417,24 +431,26 @@ export function TrackRow({ track, index, queue, showPlayCount = false }: TrackRo
         </div>
 
         <div className="flex items-center gap-0.5 sm:gap-1" onClick={(e) => e.stopPropagation()}>
-          <button
-            type="button"
-            className={iconBtn}
-            title="Нравится"
-            aria-label="Нравится"
-            disabled={likeMutation.isPending}
-            onClick={() => {
-              if (!accessToken) {
-                goToLogin(navigate);
-                return;
-              }
-              likeMutation.mutate();
-            }}
-          >
-            <Heart
-              className={`h-3.5 w-3.5 sm:h-4 sm:w-4 ${isLiked ? 'fill-[var(--primary)] text-[var(--primary)]' : ''}`}
-            />
-          </button>
+          {!currentUser?.is_admin && (
+            <button
+              type="button"
+              className={iconBtn}
+              title="Нравится"
+              aria-label="Нравится"
+              disabled={likeMutation.isPending}
+              onClick={() => {
+                if (!accessToken) {
+                  goToLogin(navigate);
+                  return;
+                }
+                likeMutation.mutate();
+              }}
+            >
+              <Heart
+                className={`h-3.5 w-3.5 sm:h-4 sm:w-4 ${isLiked ? 'fill-[var(--primary)] text-[var(--primary)]' : ''}`}
+              />
+            </button>
+          )}
           <button
             type="button"
             className={`${iconBtn} ${isRepeatOneActive ? 'text-[var(--primary)]' : ''}`}
@@ -451,22 +467,24 @@ export function TrackRow({ track, index, queue, showPlayCount = false }: TrackRo
           >
             <Repeat className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
           </button>
-          <button
-            type="button"
-            className={`${iconBtn} ${isReposted ? 'text-[var(--primary)]' : ''}`}
-            title="Репост"
-            aria-label="Репост"
-            disabled={repostMutation.isPending}
-            onClick={() => {
-              if (!accessToken) {
-                goToLogin(navigate);
-                return;
-              }
-              repostMutation.mutate();
-            }}
-          >
-            <Repeat2 className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-          </button>
+          {!currentUser?.is_admin && (
+            <button
+              type="button"
+              className={`${iconBtn} ${isReposted ? 'text-[var(--primary)]' : ''}`}
+              title="Репост"
+              aria-label="Репост"
+              disabled={repostMutation.isPending}
+              onClick={() => {
+                if (!accessToken) {
+                  goToLogin(navigate);
+                  return;
+                }
+                repostMutation.mutate();
+              }}
+            >
+              <Repeat2 className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+            </button>
+          )}
           <button
             type="button"
             className={iconBtn}

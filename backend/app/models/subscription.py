@@ -26,3 +26,4 @@ class Subscription(Base):
     expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     payment_method: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    payment_transaction_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)

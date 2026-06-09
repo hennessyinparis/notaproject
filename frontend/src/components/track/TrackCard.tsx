@@ -1,5 +1,4 @@
 import { clsx } from 'clsx';
-import { motion } from 'framer-motion';
 import { Link2, ListMusic, MoreHorizontal, Music2, Pause, Play } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -10,6 +9,7 @@ import { useAuthStore } from '../../store/authStore';
 import { usePlayerStore } from '../../store/playerStore';
 import type { Track } from '../../types';
 import { goToLogin } from '../../utils/authNavigation';
+import { stringToGradient } from '../../utils/color';
 import { AddToPlaylistModal } from './AddToPlaylistModal';
 
 interface Props {
@@ -17,19 +17,13 @@ interface Props {
   queue?: Track[];
   /** Уменьшенная карточка для полок в профиле */
   size?: 'default' | 'compact';
-}
-
-function stringToGradient(str: string): string {
-  let hash = 0;
-  for (let i = 0; i < str.length; i += 1) hash = str.charCodeAt(i) + ((hash << 5) - hash);
-  const hue = Math.abs(hash) % 360;
-  return `linear-gradient(135deg, hsl(${hue}, 70%, 55%), hsl(${(hue + 42) % 360}, 72%, 38%))`;
+  onPlay?: (track: Track) => void;
 }
 
 const menuItemCls =
   'flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm text-[var(--text-primary)] transition hover:bg-[var(--bg-elevated)]';
 
-export function TrackCard({ track, queue, size = 'default' }: Props) {
+export function TrackCard({ track, queue, size = 'default', onPlay }: Props) {
   const compact = size === 'compact';
   const navigate = useNavigate();
   const accessToken = useAuthStore((s) => s.accessToken);
@@ -38,11 +32,11 @@ export function TrackCard({ track, queue, size = 'default' }: Props) {
   const menuBtnRef = useRef<HTMLButtonElement>(null);
   const [menuPos, setMenuPos] = useState({ top: 0, left: 0, width: 160 });
 
-  const playTrack = usePlayerStore((s) => s.playTrack);
-  const toggle = usePlayerStore((s) => s.toggle);
-  const currentTrack = usePlayerStore((s) => s.currentTrack);
-  const isPlaying = usePlayerStore((s) => s.isPlaying);
-  const isCurrentTrack = currentTrack != null && Number(currentTrack.id) === Number(track.id);
+  const trackId = Number(track.id);
+  const isCurrentTrack = usePlayerStore((s) => s.currentTrack != null && Number(s.currentTrack.id) === trackId);
+  const isPlaying = usePlayerStore(
+    (s) => s.isPlaying && s.currentTrack != null && Number(s.currentTrack.id) === trackId
+  );
   const base = import.meta.env.VITE_API_URL || '';
   const cover = track.cover_url ? `${base}${track.cover_url}` : null;
   const showOverlay = isCurrentTrack && isPlaying;
@@ -134,11 +128,7 @@ export function TrackCard({ track, queue, size = 'default' }: Props) {
     );
 
   return (
-    <motion.div
-      whileHover={{ y: compact ? -2 : -3 }}
-      transition={{ duration: 0.2 }}
-      className="flex flex-col"
-    >
+    <div className="flex flex-col transition-transform duration-200 hover:-translate-y-0.5">
       <AddToPlaylistModal trackId={track.id} open={playlistOpen} onClose={() => setPlaylistOpen(false)} />
       <div className="group/cover relative">
         <div
@@ -149,7 +139,7 @@ export function TrackCard({ track, queue, size = 'default' }: Props) {
             isCurrentTrack && 'ring-2 ring-[var(--primary)]'
           )}
           style={{
-            background: cover ? undefined : stringToGradient(track.title),
+            background: cover ? undefined : stringToGradient(track.title ?? track.id),
           }}
         >
           <Link
@@ -175,8 +165,14 @@ export function TrackCard({ track, queue, size = 'default' }: Props) {
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                if (isCurrentTrack) toggle();
-                else playTrack(track, queue);
+                const s = usePlayerStore.getState();
+                const isCurrent = s.currentTrack != null && Number(s.currentTrack.id) === trackId;
+                if (isCurrent && s.isPlaying) {
+                  s.toggle();
+                } else {
+                  s.playTrack(track, queue);
+                  onPlay?.(track);
+                }
               }}
               className={clsx(
                 'pointer-events-auto flex items-center justify-center rounded-full bg-white text-[#1a1a1a] shadow-lg transition hover:scale-105 active:scale-95',
@@ -249,6 +245,6 @@ export function TrackCard({ track, queue, size = 'default' }: Props) {
           </Link>
         )}
       </div>
-    </motion.div>
+    </div>
   );
 }

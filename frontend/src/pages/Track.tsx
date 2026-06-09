@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Heart, Share2, Repeat, Play, Eye, Music, Tag, MessageCircle } from 'lucide-react';
+import { Flag, Gift, Heart, Share2, Repeat, Play, Eye, Music, Tag, MessageCircle } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
@@ -7,7 +7,9 @@ import toast from 'react-hot-toast';
 import { api } from '../api/client';
 import { Button } from '../components/common/Button';
 import { AddToPlaylistModal } from '../components/track/AddToPlaylistModal';
+import { ReportModal } from '../components/report/ReportModal';
 import { Comments } from '../components/track/Comments';
+import { DonateModal } from '../components/artist/DonateModal';
 import { Waveform } from '../components/player/Waveform';
 import { TrackRow } from '../components/track/TrackRow';
 import { TrackRowStack } from '../components/track/TrackRowStack';
@@ -16,15 +18,9 @@ import { goToLogin } from '../utils/authNavigation';
 import { usePlayerStore } from '../store/playerStore';
 import type { Track } from '../types';
 import { formatDuration, formatNumber } from '../utils/format';
-
-function stringToColor(str: string): string {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const hue = hash % 360;
-  return `linear-gradient(135deg, hsl(${hue}, 70%, 50%), hsl(${(hue + 40) % 360}, 80%, 30%))`;
-}
+import { normalizeWaveformPeaks } from '../utils/waveform';
+import { stringToColor } from '../utils/color';
+import { TrackPremiumActions } from '../components/track/TrackPremiumActions';
 
 export function TrackPage() {
   const { id } = useParams();
@@ -37,6 +33,7 @@ export function TrackPage() {
   const repeatMode = usePlayerStore((s) => s.repeat);
   const setRepeat = usePlayerStore((s) => s.setRepeat);
   const accessToken = useAuthStore((s) => s.accessToken);
+  const currentUser = useAuthStore((s) => s.user);
 
   const requireAuth = (action: () => void) => {
     if (!accessToken) {
@@ -49,6 +46,8 @@ export function TrackPage() {
   const [isReposted, setIsReposted] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [showPlaylistModal, setShowPlaylistModal] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [donateOpen, setDonateOpen] = useState(false);
   const [searchUser, setSearchUser] = useState('');
 
   const isCurrentTrack = currentTrack?.id === Number(id);
@@ -117,7 +116,23 @@ export function TrackPage() {
     setShowShareModal(false);
   };
 
-  if (isLoading || !track) return <div className="p-8">Загрузка…</div>;
+  const donateSummaryQ = useQuery({
+    queryKey: ['donation-summary', track?.user?.username],
+    queryFn: () =>
+      api
+        .get<{ accepts_donations: boolean }>(`/api/donations/artist/${track!.user!.username}/summary`)
+        .then((r) => r.data),
+    enabled: !!track?.user?.username && currentUser?.id !== track?.user?.id,
+  });
+
+  if (isLoading || !track) {
+    return <div className="p-8">Загрузка…</div>;
+  }
+
+  const serverLiked = track.is_liked ?? false;
+  const serverReposted = track.is_reposted ?? false;
+  if (isLiked !== serverLiked) setIsLiked(serverLiked);
+  if (isReposted !== serverReposted) setIsReposted(serverReposted);
 
   const base = import.meta.env.VITE_API_URL || '';
   const cover = track.cover_url ? `${base}${track.cover_url}` : null;
@@ -148,7 +163,18 @@ export function TrackPage() {
             <span className="mt-3 inline-block text-sm font-medium text-[var(--text-muted)]">{track.user?.display_name}</span>
           )}
           <div className="mt-6 flex flex-wrap gap-2">
-            <Button onClick={() => playTrack(track)}>
+            <Button onClick={() => {
+              try {
+                if (isCurrentTrack) {
+                  const s = usePlayerStore.getState();
+                  s.toggle();
+                } else {
+                  playTrack(track);
+                }
+              } catch (e) {
+                console.error('[TrackPage] playTrack error:', e);
+              }
+            }}>
               <Play className="mr-2 h-4 w-4" /> Играть
             </Button>
             <Button
@@ -182,13 +208,24 @@ export function TrackPage() {
             <Button variant="ghost" onClick={() => requireAuth(() => setShowShareModal(true))}>
               <MessageCircle className="mr-2 h-4 w-4" /> Отправить
             </Button>
+            {donateSummaryQ.data?.accepts_donations && (
+              <Button variant="ghost" onClick={() => setDonateOpen(true)}>
+                <Gift className="mr-2 h-4 w-4" /> Донат
+              </Button>
+            )}
+            {accessToken && !currentUser?.is_admin && (
+              <Button variant="ghost" onClick={() => setReportOpen(true)}>
+                <Flag className="mr-2 h-4 w-4" /> Пожаловаться
+              </Button>
+            )}
             <Button variant="secondary" onClick={() => requireAuth(() => setShowPlaylistModal(true))}>
               + В плейлист
             </Button>
           </div>
+          <TrackPremiumActions track={track} className="mt-4" />
           <p className="mt-6 text-[var(--text-secondary)]">{track.description}</p>
           <div className="mt-4 flex flex-wrap gap-4 text-sm text-[var(--text-muted)]">
-            <span><Eye className="mr-1 inline h-4 w-4" /> {formatNumber(track.plays_count)} прослушиваний</span>
+            <span><Eye className="mr-1 inline h-4 w-4" /> {formatNumber(track.plays_count ?? 0)} прослушиваний</span>
             {track.genre && <span><Music className="mr-1 inline h-4 w-4" /> {track.genre}</span>}
           </div>
           {track.tags && track.tags.length > 0 && (
@@ -206,7 +243,7 @@ export function TrackPage() {
         </div>
       </div>
       <Waveform
-        peaks={track.waveform_data?.peaks}
+        peaks={normalizeWaveformPeaks(track.waveform_data?.peaks)}
         duration={track.duration_seconds}
         position={isCurrentTrack ? playerPosition : 0}
         onSeek={isCurrentTrack ? seek : () => playTrack(track)}
@@ -266,6 +303,13 @@ export function TrackPage() {
         </div>
       )}
       <AddToPlaylistModal trackId={track.id} open={showPlaylistModal} onClose={() => setShowPlaylistModal(false)} />
+      <ReportModal open={reportOpen} onClose={() => setReportOpen(false)} reportType="track" targetId={track.id} targetLabel={track.title} />
+      <DonateModal
+        open={donateOpen}
+        onClose={() => setDonateOpen(false)}
+        artistUsername={track.user!.username}
+        artistName={track.user!.display_name || track.user!.username}
+      />
     </div>
   );
 }

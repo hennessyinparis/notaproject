@@ -1,18 +1,26 @@
 import {
   ChevronRight,
+  DollarSign,
   ExternalLink,
+  Flag,
+  GraduationCap,
+  HandCoins,
+  Megaphone,
   LayoutDashboard,
   LogOut,
   Menu,
   MessageSquare,
   Music2,
   Shield,
+  ShieldAlert,
   Users,
   X,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 
+import { api } from '../../api/client';
 import { useAuthStore } from '../../store/authStore';
 import { AdminThemeToggle } from './AdminThemeToggle';
 
@@ -25,18 +33,34 @@ function navClass({ isActive }: { isActive: boolean }) {
   ].join(' ');
 }
 
+function navEnd(to: string) {
+  return to === '/admin/dashboard' || to === '/admin/tracks';
+}
+
 const navItems = [
   { to: '/admin/dashboard', label: 'Обзор', short: 'Обзор', icon: LayoutDashboard },
   { to: '/admin/users', label: 'Пользователи', short: 'Юзеры', icon: Users },
   { to: '/admin/tracks', label: 'Треки', short: 'Треки', icon: Music2 },
+  { to: '/admin/tracks/blocked', label: 'Блокировки', short: 'Блоки', icon: ShieldAlert },
   { to: '/admin/comments', label: 'Комментарии', short: 'Чат', icon: MessageSquare },
+  { to: '/admin/reports', label: 'Жалобы', short: 'Жалобы', icon: Flag },
+  { to: '/admin/revenue', label: 'Доходы', short: 'Доход', icon: DollarSign },
+  { to: '/admin/verifications', label: 'Верификация', short: 'Вер.', icon: GraduationCap },
+  { to: '/admin/donations', label: 'Донаты', short: 'Дон.', icon: HandCoins },
+  { to: '/admin/ads', label: 'Реклама', short: 'Рекл.', icon: Megaphone },
 ] as const;
 
 function headerMeta(pathname: string) {
   if (pathname.includes('/dashboard')) return { crumb: 'Обзор', hint: 'Сводка по платформе' };
   if (pathname.includes('/users')) return { crumb: 'Пользователи', hint: 'Учётные записи и права' };
+  if (pathname.includes('/tracks/blocked')) return { crumb: 'Блокировки', hint: 'Треки, скрытые с витрины' };
   if (pathname.includes('/tracks')) return { crumb: 'Треки', hint: 'Модерация релизов' };
   if (pathname.includes('/comments')) return { crumb: 'Комментарии', hint: 'Сообщения под треками' };
+  if (pathname.includes('/revenue')) return { crumb: 'Доходы', hint: 'Суммарная выручка от подписок' };
+  if (pathname.includes('/ads')) return { crumb: 'Реклама', hint: 'Аудиоролики между треками' };
+  if (pathname.includes('/reports')) return { crumb: 'Жалобы', hint: 'Модерация контента' };
+  if (pathname.includes('/verifications')) return { crumb: 'Верификация', hint: 'Подтверждение статуса студента' };
+  if (pathname.includes('/donations')) return { crumb: 'Донаты', hint: 'Все донаты на платформе' };
   return { crumb: 'Админ', hint: 'Панель управления' };
 }
 
@@ -48,6 +72,12 @@ export function AdminLayout() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const meta = useMemo(() => headerMeta(pathname), [pathname]);
+
+  const { data: pendingCount } = useQuery({
+    queryKey: ['admin-student-verifications-count'],
+    queryFn: () => api.get<any[]>('/api/admin/student-verifications').then((r) => r.data.length),
+    refetchInterval: 30_000,
+  });
 
   const handleLogout = () => {
     logout();
@@ -71,10 +101,10 @@ export function AdminLayout() {
       />
 
       <aside
-        className="relative hidden w-64 shrink-0 flex-col border-r border-[var(--border)] bg-[var(--bg-elevated)]/90 shadow-[4px_0_24px_-12px_rgba(0,0,0,0.15)] backdrop-blur-md dark:shadow-[4px_0_32px_-8px_rgba(0,0,0,0.5)] md:flex"
+        className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-[var(--border)] bg-[var(--bg-elevated)]/90 shadow-[4px_0_24px_-12px_rgba(0,0,0,0.15)] backdrop-blur-md dark:shadow-[4px_0_32px_-8px_rgba(0,0,0,0.5)] md:flex"
         aria-label="Админ-навигация"
       >
-        <div className="absolute left-0 top-0 h-24 w-full bg-gradient-to-b from-[var(--primary)]/10 to-transparent" aria-hidden />
+        <div className="absolute left-0 top-0 h-24 w-full bg-gradient-to-b from-[var(--primary)]/10 to-transparent pointer-events-none" aria-hidden />
         <div className="relative border-b border-[var(--border)] p-5">
           <div className="flex items-center gap-3">
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-[var(--primary)]/25 to-[var(--primary)]/5 ring-1 ring-[var(--primary)]/30">
@@ -88,11 +118,16 @@ export function AdminLayout() {
             </div>
           </div>
         </div>
-        <nav className="relative flex flex-1 flex-col gap-1 p-3">
+        <nav className="relative flex flex-1 flex-col gap-1 overflow-y-auto p-3">
           {navItems.map(({ to, label, icon: Icon }) => (
-            <NavLink key={to} end={to === '/admin/dashboard'} to={to} className={navClass}>
+            <NavLink key={to} end={navEnd(to)} to={to} className={navClass}>
               <Icon className="h-[18px] w-[18px] shrink-0 opacity-90" aria-hidden />
               <span className="flex-1 text-left">{label}</span>
+              {to === '/admin/verifications' && pendingCount && pendingCount > 0 && (
+                <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-[var(--primary)] px-1.5 text-[10px] font-bold text-white leading-none">
+                  {pendingCount}
+                </span>
+              )}
               <ChevronRight className="h-4 w-4 shrink-0 opacity-25" aria-hidden />
             </NavLink>
           ))}
@@ -161,7 +196,7 @@ export function AdminLayout() {
               {navItems.map(({ to, label, short, icon: Icon }) => (
                 <NavLink
                   key={to}
-                  end={to === '/admin/dashboard'}
+                  end={navEnd(to)}
                   to={to}
                   className={navClass}
                   onClick={() => setMobileNavOpen(false)}

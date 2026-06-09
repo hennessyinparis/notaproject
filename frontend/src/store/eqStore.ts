@@ -9,15 +9,15 @@ export interface EqBand {
 }
 
 export const EQ_PRESETS: Record<string, number[]> = {
-  flat: [0, 0, 0, 0, 0, 0],
-  rock: [4, 3, -2, -1, 2, 4],
-  pop: [1, 3, 5, 3, 1, 0],
-  jazz: [3, 2, 1, 2, 3, 4],
-  classical: [4, 3, 2, 1, 2, 3],
-  electronic: [4, 5, 3, 0, -2, -4],
-  bass_boost: [6, 4, 1, 0, 0, 0],
-  treble_boost: [0, 0, 0, 1, 4, 6],
-  vocal: [-2, -1, 3, 5, 3, -1],
+  flat: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  rock: [4, 3, -2, -1, 2, 4, 2, 1, 0, -1],
+  pop: [1, 3, 5, 3, 1, 0, 0, 0, -1, -2],
+  jazz: [3, 2, 1, 2, 3, 4, 3, 2, 1, 0],
+  classical: [4, 3, 2, 1, 2, 3, 2, 1, 0, 0],
+  electronic: [4, 5, 3, 0, -2, -4, -2, 0, 1, 2],
+  bass_boost: [6, 4, 1, 0, 0, 0, 0, 0, 0, 0],
+  treble_boost: [0, 0, 0, 1, 4, 6, 5, 4, 3, 2],
+  vocal: [-2, -1, 3, 5, 3, -1, 0, 0, 0, 0],
 };
 
 export const EQ_BANDS: EqBand[] = [
@@ -106,30 +106,40 @@ export const useEqStore = create<EqState>()(
         if (!state.enabled || !howl) return;
 
         try {
-          // Get Howler's audio context
           const ctx = Howler.ctx;
           if (!ctx) return;
 
-          // Create EQ filters
-          eqFilters = createEqFilters(ctx, state.bands);
-
-          // Get the gain node from Howler
-          gainNode = Howler.masterGain;
-
-          // Disconnect Howler's master gain from destination
-          gainNode.disconnect();
-
-          // Connect: masterGain -> eq filters -> destination
-          gainNode.connect(eqFilters[0]);
-          for (let i = 0; i < eqFilters.length - 1; i++) {
-            eqFilters[i].connect(eqFilters[i + 1]);
+          // Disconnect and clean up old filter chain before creating new one
+          if (eqFilters) {
+            for (const f of eqFilters) {
+              try { f.disconnect(); } catch { /* already disconnected */ }
+            }
           }
-          eqFilters[eqFilters.length - 1].connect(ctx.destination);
 
+          const filters = createEqFilters(ctx, state.bands);
+
+          for (let i = 0; i < filters.length - 1; i++) {
+            filters[i].connect(filters[i + 1]);
+          }
+          filters[filters.length - 1].connect(ctx.destination);
+
+          gainNode = Howler.masterGain;
+          gainNode.disconnect();
+          gainNode.connect(filters[0]);
+
+          eqFilters = filters;
           eqContext = ctx;
           set({ filters: eqFilters, context: ctx });
         } catch (e) {
           console.error('EQ setup error:', e);
+          try {
+            gainNode = Howler.masterGain;
+            gainNode.disconnect();
+            gainNode.connect(Howler.ctx.destination);
+          } catch { /* silent */ }
+          eqFilters = null;
+          eqContext = null;
+          set({ enabled: false, filters: null, context: null });
         }
       },
 

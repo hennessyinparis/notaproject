@@ -17,6 +17,7 @@ function applyDomTheme(mode: ThemeMode) {
     effective = mode;
   }
   root.setAttribute('data-theme', effective);
+  root.style.colorScheme = effective;
 }
 
 export const useThemeStore = create<ThemeState>()(
@@ -36,5 +37,6 @@ if (typeof window !== 'undefined') {
   applyDomTheme(useThemeStore.getState().mode);
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
     if (useThemeStore.getState().mode === 'system') applyDomTheme('system');
+    else applyDomTheme(useThemeStore.getState().mode);
   });
 }

@@ -10,6 +10,29 @@ export type AdminStats = {
   messages_count: number;
   public_tracks_count: number;
   hidden_tracks_count: number;
+  reports_pending_count: number;
+  reports_resolved_count: number;
+  reports_dismissed_count: number;
+  users_today_count: number;
+};
+
+export type SubscriptionRevenue = {
+  total_revenue: number;
+  active_subscriptions: number;
+  by_plan: Record<string, number>;
+  count_by_plan: Record<string, number>;
+};
+
+export type SubscriptionDetail = {
+  id: number;
+  user_id: number;
+  username: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  plan_type: string;
+  price_paid: number;
+  created_at: string;
+  expires_at: string | null;
 };
 
 export type AdminCommentRow = {
@@ -21,6 +44,25 @@ export type AdminCommentRow = {
   display_name: string;
   track_id: number;
   track_title: string;
+};
+
+export type DetailedStats = {
+  top_tracks: {
+    id: number;
+    title: string;
+    plays: number;
+    artist: string | null;
+    artist_display: string | null;
+    cover_url: string | null;
+  }[];
+  recent_users: {
+    id: number;
+    username: string;
+    display_name: string | null;
+    avatar_url: string | null;
+    created_at: string;
+    tracks_count: number;
+  }[];
 };
 
 export const adminInputClass =

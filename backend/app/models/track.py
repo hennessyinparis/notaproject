@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, List, Optional
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, func, Index
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -13,6 +13,15 @@ if TYPE_CHECKING:
 
 class Track(Base):
     __tablename__ = "tracks"
+
+    __table_args__ = (
+        Index('ix_tracks_created_at', 'created_at'),
+        Index('ix_tracks_plays_count', 'plays_count'),
+        Index('ix_tracks_genre', 'genre'),
+        Index('ix_tracks_user_id_created_at', 'user_id', 'created_at'),
+        Index('ix_tracks_is_public_created_at', 'is_public', 'created_at'),
+        Index('ix_tracks_is_public_plays_count', 'is_public', 'plays_count'),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)

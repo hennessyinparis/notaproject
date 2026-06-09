@@ -31,6 +31,9 @@ class Playlist(Base):
     tracks_link: Mapped[List["PlaylistTrack"]] = relationship(
         "PlaylistTrack", back_populates="playlist", cascade="all, delete-orphan", order_by="PlaylistTrack.position"
     )
+    collaborators: Mapped[List["PlaylistCollaborator"]] = relationship(
+        "PlaylistCollaborator", back_populates="playlist", cascade="all, delete-orphan"
+    )
 
 
 class PlaylistTrack(Base):
@@ -45,6 +48,18 @@ class PlaylistTrack(Base):
     track: Mapped["Track"] = relationship("Track")
 
 
+class PlaylistLike(Base):
+    __tablename__ = "playlist_likes"
+
+    playlist_id: Mapped[int] = mapped_column(
+        ForeignKey("playlists.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class PlaylistCollaborator(Base):
     __tablename__ = "playlist_collaborators"
 
@@ -56,3 +71,6 @@ class PlaylistCollaborator(Base):
     )
     role: Mapped[str] = mapped_column(String(20), default="editor")
     added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    playlist: Mapped["Playlist"] = relationship("Playlist", back_populates="collaborators")
+    user: Mapped["User"] = relationship("User")
