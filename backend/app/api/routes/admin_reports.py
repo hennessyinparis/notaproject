@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +14,7 @@ from app.models.playlist import Playlist
 from app.models.report import Report, ReportStatus
 from app.models.track import Track
 from app.models.user import User
+from app.services.audit import log_audit
 from app.services.realtime import push_notification
 
 router = APIRouter(prefix="/admin/reports", tags=["admin-reports"])
@@ -168,6 +169,7 @@ async def _apply_resolution(report: Report, db: AsyncSession) -> None:
             tr = await db.execute(select(Track).where(Track.id == c.track_id))
             t = tr.scalar_one_or_none()
             await db.delete(c)
+            await db.flush()
             if t:
                 cnt_r = await db.execute(
                     select(func.count()).select_from(Comment).where(Comment.track_id == t.id)
@@ -184,6 +186,28 @@ async def _apply_resolution(report: Report, db: AsyncSession) -> None:
         p = r.scalar_one_or_none()
         if p:
             p.is_public = False
+
+
+async def _undo_resolution(report: Report, db: AsyncSession) -> None:
+    """Отменяет действия _apply_resolution при смене статуса с resolved на другой."""
+    if report.report_type == "track":
+        r = await db.execute(select(Track).where(Track.id == report.target_id))
+        t = r.scalar_one_or_none()
+        if t:
+            t.is_public = True
+    elif report.report_type == "comment":
+        # Удалённые комментарии не восстанавливаются (ограничение текущей реализации)
+        pass
+    elif report.report_type == "user":
+        r = await db.execute(select(User).where(User.id == report.target_id))
+        u = r.scalar_one_or_none()
+        if u:
+            u.is_blocked = False
+    elif report.report_type == "playlist":
+        r = await db.execute(select(Playlist).where(Playlist.id == report.target_id))
+        p = r.scalar_one_or_none()
+        if p:
+            p.is_public = True
 
 
 def _build_out(report: Report, reporter: User, target_details: Optional[Dict[str, Any]],
@@ -262,6 +286,7 @@ async def admin_get_report(
 async def admin_update_report(
     report_id: int,
     body: AdminReportUpdate,
+    request: Request,
     admin_user: User = Depends(get_current_admin_user),
     db: AsyncSession = Depends(get_db),
 ) -> AdminReportOut:
@@ -285,7 +310,11 @@ async def admin_update_report(
     if body.status == "resolved" and old_status != "resolved":
         await _apply_resolution(report, db)
         await db.flush()
+    elif old_status == "resolved" and body.status != "resolved":
+        await _undo_resolution(report, db)
+        await db.flush()
 
+    if body.status == "resolved" and old_status != "resolved":
         target_owner_id = await _get_target_owner_id(report, db)
         if target_owner_id and target_owner_id != report.reporter_id:
             existing = await db.execute(
@@ -307,6 +336,17 @@ async def admin_update_report(
                 db.add(notif)
                 await db.flush()
                 await push_notification(db, target_owner_id, notif)
+        await log_audit(
+            db,
+            user_id=admin_user.id,
+            username=admin_user.username,
+            action_type="report_resolve",
+            entity_type=report.report_type,
+            entity_id=report.target_id,
+            details={"report_id": report.id, "reason": report.reason, "old_status": old_status, "new_status": body.status, "admin_notes": body.admin_notes},
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+        )
 
     reporter = await db.get(User, report.reporter_id)
     details = await _fetch_target_details(report, db)

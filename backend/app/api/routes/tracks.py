@@ -18,6 +18,7 @@ from app.models.follow import Follow
 from app.models.notification import Notification, NotificationType
 from app.models.track import Track
 from app.models.user import User
+from app.services.audit import log_audit
 from app.services.royalties import accrue_royalty_on_complete_play
 from app.services.subscription_access import is_premium_listener
 from app.schemas.track import TrackCreate, TrackPlayReport, TrackPublic, TrackUpdate
@@ -43,7 +44,7 @@ async def trending(
     q = (
         select(Track)
         .join(Track.user)
-        .where(Track.is_public.is_(True), User.is_admin.is_(False))
+        .where(Track.is_public.is_(True), Track.is_deleted.is_(False), User.is_admin.is_(False))
         .options(selectinload(Track.user))
         .order_by(Track.plays_count.desc())
         .limit(min(limit, 50))
@@ -57,7 +58,7 @@ async def new_releases(limit: int = 20, db: AsyncSession = Depends(get_db)) -> L
     q = (
         select(Track)
         .join(Track.user)
-        .where(Track.is_public.is_(True), User.is_admin.is_(False))
+        .where(Track.is_public.is_(True), Track.is_deleted.is_(False), User.is_admin.is_(False))
         .options(selectinload(Track.user))
         .order_by(Track.created_at.desc())
         .limit(min(limit, 50))
@@ -188,6 +189,17 @@ async def upload_track(
 
     await db.refresh(track, attribute_names=["user"])
     r2 = await db.execute(select(Track).options(selectinload(Track.user)).where(Track.id == track.id))
+    await log_audit(
+        db,
+        user_id=user.id,
+        username=user.username,
+        action_type="track_upload",
+        entity_type="track",
+        entity_id=track.id,
+        details={"title": track.title, "genre": track.genre, "is_public": is_public},
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+    )
     return r2.scalar_one()
 
 
@@ -214,6 +226,7 @@ async def update_track(
 @router.delete("/{track_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_track(
     track_id: int,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> None:
@@ -223,15 +236,23 @@ async def delete_track(
         raise HTTPException(status_code=404, detail="Трек не найден")
     if t.user_id != user.id:
         raise HTTPException(status_code=403, detail="Нет прав")
-    file_path = resolve_media_path(t.file_url)
-    cover_path = resolve_media_path(t.cover_url) if t.cover_url else None
-    await db.execute(delete(Track).where(Track.id == track_id))
-    for p in (file_path, cover_path):
-        if p and p.exists():
-            try:
-                p.unlink()
-            except OSError:
-                pass
+    # Soft delete: помечаем как удалённый, не удаляем файлы
+    t.is_deleted = True
+    t.deleted_at = datetime.now(timezone.utc)
+    t.deleted_by = user.id
+    t.is_public = False
+    await db.flush()
+    await log_audit(
+        db,
+        user_id=user.id,
+        username=user.username,
+        action_type="track_delete",
+        entity_type="track",
+        entity_id=track_id,
+        details={"title": t.title, "soft_delete": True},
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+    )
 
 
 @router.get("/{track_id}/stream")
@@ -574,7 +595,7 @@ async def get_related_tracks(
         select(Track)
         .join(Track.user)
         .options(selectinload(Track.user))
-        .where(Track.id != track_id, Track.is_public.is_(True), User.is_admin.is_(False))
+        .where(Track.id != track_id, Track.is_public.is_(True), Track.is_deleted.is_(False), User.is_admin.is_(False))
         .limit(min(limit, 50))
         .order_by(Track.created_at.desc())
     )

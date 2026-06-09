@@ -10,11 +10,33 @@ from fastapi.responses import JSONResponse
 from typing import Callable
 import logging
 
+from app.core.security import decode_token
+
 logger = logging.getLogger(__name__)
+
+
+def get_user_identifier(request: Request) -> str:
+    """
+    Получает идентификатор пользователя для rate limiting.
+    Использует user_id из токена если доступен, иначе IP адрес.
+    """
+    auth = request.headers.get("authorization", "")
+    if auth.startswith("Bearer "):
+        token = auth[7:]
+        try:
+            payload = decode_token(token)
+            if payload and payload.get("type") == "access":
+                user_id = payload.get("sub")
+                if user_id:
+                    return f"user:{user_id}"
+        except Exception:
+            pass
+    return get_remote_address(request)
+
 
 # Инициализация limiter
 limiter = Limiter(
-    key_func=get_remote_address,
+    key_func=get_user_identifier,
     default_limits=["1000/hour"],  # Общий лимит по умолчанию
     storage_uri="memory://",  # В продакшене использовать Redis
     strategy="fixed-window",
@@ -77,18 +99,6 @@ class RateLimits:
     READ_GENERAL = "300/minute"       # Чтение данных - 300 в минуту
 
 
-def get_user_identifier(request: Request) -> str:
-    """
-    Получает идентификатор пользователя для rate limiting.
-    Использует user_id из токена если доступен, иначе IP адрес.
-    """
-    # Попытка получить user_id из state (устанавливается в auth middleware)
-    user = getattr(request.state, "user", None)
-    if user and hasattr(user, "id"):
-        return f"user:{user.id}"
-    
-    # Fallback на IP адрес
-    return get_remote_address(request)
 
 
 def create_limiter_with_redis(redis_url: str) -> Limiter:

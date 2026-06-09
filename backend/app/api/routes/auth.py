@@ -21,6 +21,7 @@ from app.core.rate_limit import limiter, RateLimits
 from app.models.password_reset import PasswordResetToken
 from app.models.user import ArtistSubscriptionType, User, UserSubscriptionType
 from app.schemas.user import TokenPair, UserCreate, UserPublic
+from app.services.audit import log_audit
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -140,17 +141,52 @@ async def login(request: Request, body: LoginBody, db: AsyncSession = Depends(ge
     stored_hash = user.password_hash if user else dummy_hash
     password_valid = verify_password(body.password, stored_hash)
     
-    # Уменьшаем точность timing: если пароль неверный, все равно выполняем лишнюю операцию
+    # Уменьшаем точность timing: константное сравнение dummy hash (всегда одинаковое время)
     import secrets
-    _timing_protection = secrets.compare_digest(str(user.id if user else 0), str(user.id if user else 0))
+    _timing_protection = secrets.compare_digest(dummy_hash, dummy_hash)
+    
+    ip = request.client.host if request.client else None
+    ua = request.headers.get("user-agent")
     
     if not user or not password_valid:
+        await log_audit(
+            db,
+            user_id=user.id if user else None,
+            username=user.username if user else body.username,
+            action_type="login_failure",
+            entity_type="user",
+            entity_id=user.id if user else None,
+            details={"reason": "invalid_credentials" if user else "user_not_found"},
+            ip_address=ip,
+            user_agent=ua,
+        )
         raise HTTPException(status_code=401, detail="Неверные учётные данные")
     if user.is_blocked:
+        await log_audit(
+            db,
+            user_id=user.id,
+            username=user.username,
+            action_type="login_failure",
+            entity_type="user",
+            entity_id=user.id,
+            details={"reason": "blocked"},
+            ip_address=ip,
+            user_agent=ua,
+        )
         raise HTTPException(status_code=403, detail="Аккаунт заблокирован администратором")
 
     access = create_access_token({"sub": str(user.id)})
     refresh = create_refresh_token({"sub": str(user.id)})
+    await log_audit(
+        db,
+        user_id=user.id,
+        username=user.username,
+        action_type="login_success",
+        entity_type="user",
+        entity_id=user.id,
+        ip_address=ip,
+        user_agent=ua,
+    )
     return TokenPair(access_token=access, refresh_token=refresh)
 
 

@@ -161,7 +161,7 @@ async def playlist_tracks(
         select(Track)
         .join(PlaylistTrack, PlaylistTrack.track_id == Track.id)
         .join(Track.user)
-        .where(PlaylistTrack.playlist_id == playlist_id, Track.is_public.is_(True), User.is_admin.is_(False))
+        .where(PlaylistTrack.playlist_id == playlist_id, Track.is_public.is_(True), Track.is_deleted.is_(False), User.is_admin.is_(False))
         .options(selectinload(Track.user))
         .order_by(PlaylistTrack.position)
         .offset(offset)

@@ -1,5 +1,6 @@
 import {
   ChevronRight,
+  ClipboardList,
   DollarSign,
   ExternalLink,
   Flag,
@@ -48,6 +49,7 @@ const navItems = [
   { to: '/admin/verifications', label: 'Верификация', short: 'Вер.', icon: GraduationCap },
   { to: '/admin/donations', label: 'Донаты', short: 'Дон.', icon: HandCoins },
   { to: '/admin/ads', label: 'Реклама', short: 'Рекл.', icon: Megaphone },
+  { to: '/admin/audit-logs', label: 'Аудит', short: 'Аудит', icon: ClipboardList },
 ] as const;
 
 function headerMeta(pathname: string) {
@@ -61,6 +63,7 @@ function headerMeta(pathname: string) {
   if (pathname.includes('/reports')) return { crumb: 'Жалобы', hint: 'Модерация контента' };
   if (pathname.includes('/verifications')) return { crumb: 'Верификация', hint: 'Подтверждение статуса студента' };
   if (pathname.includes('/donations')) return { crumb: 'Донаты', hint: 'Все донаты на платформе' };
+  if (pathname.includes('/audit-logs')) return { crumb: 'Аудит', hint: 'Журнал действий пользователей и администраторов' };
   return { crumb: 'Админ', hint: 'Панель управления' };
 }
 

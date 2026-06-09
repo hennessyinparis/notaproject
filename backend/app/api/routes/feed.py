@@ -37,6 +37,7 @@ async def feed(
         .where(
             Track.user_id.in_(following_ids),
             Track.is_public.is_(True),
+            Track.is_deleted.is_(False),
             User.is_admin.is_(False),
         )
         .options(selectinload(Track.user))

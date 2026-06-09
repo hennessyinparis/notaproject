@@ -102,9 +102,10 @@ export function useBeforeUnloadStats() {
         });
 
         try {
+          const blob = new Blob([payload], { type: 'application/json' });
           navigator.sendBeacon(
             `${base}/api/tracks/${currentTrack.id}/play`,
-            payload,
+            blob,
           );
         } catch {
           // silent fail — статистика не критична

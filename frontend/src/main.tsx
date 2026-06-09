@@ -46,6 +46,7 @@ import { AdminCommentsPage } from './pages/admin/AdminCommentsPage';
 import { AdminDashboard } from './pages/admin/AdminDashboard';
 import { AdminDonationsPage } from './pages/admin/AdminDonationsPage';
 import { AdminAdsPage } from './pages/admin/AdminAdsPage';
+import { AdminAuditLogPage } from './pages/admin/AdminAuditLogPage';
 import { AdminVerificationsPage } from './pages/admin/AdminVerificationsPage';
 import { AdminBlockedTracksPage } from './pages/admin/AdminBlockedTracksPage';
 import { AdminReportsPage } from './pages/admin/AdminReportsPage';
@@ -129,6 +130,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="donations" element={<AdminDonationsPage />} />
             <Route path="ads" element={<AdminAdsPage />} />
             <Route path="reports" element={<AdminReportsPage />} />
+            <Route path="audit-logs" element={<AdminAuditLogPage />} />
           </Route>
           <Route element={<App />}>
             <Route index element={<Home />} />

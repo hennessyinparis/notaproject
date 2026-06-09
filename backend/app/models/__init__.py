@@ -1,3 +1,4 @@
+from app.models.audit_log import AuditLog
 from app.models.comment import Comment
 from app.models.donation import Donation
 from app.models.comment_like import CommentLike
@@ -15,6 +16,7 @@ from app.models.track_play import TrackPlay, TrackPlaySource
 from app.models.user import ArtistSubscriptionType, User, UserSubscriptionType
 
 __all__ = [
+    "AuditLog",
     "User",
     "UserSubscriptionType",
     "ArtistSubscriptionType",

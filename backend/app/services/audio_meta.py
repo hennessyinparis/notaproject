@@ -34,7 +34,7 @@ def get_duration_seconds(path: Path) -> float:
 
 
 def generate_waveform_peaks(path: Path, peaks: int = 1000) -> List[float]:
-    """Генерирует массив пиков [0..1] через ffmpeg showwavespic или astats."""
+    """Генерирует массив пиков [0..1] через ffmpeg showwavespic."""
     out: List[float] = [0.05] * min(peaks, 1000)
     try:
         r = subprocess.run(
@@ -43,17 +43,26 @@ def generate_waveform_peaks(path: Path, peaks: int = 1000) -> List[float]:
                 "-i",
                 str(path),
                 "-af",
-                f"astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.Peak_level:file=-",
+                f"showwavespic=s={peaks}x1:colors=gray",
+                "-frames:v",
+                "1",
                 "-f",
-                "null",
+                "image2pipe",
+                "-vcodec",
+                "rawvideo",
+                "-pix_fmt",
+                "gray",
                 "-",
             ],
             stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            stderr=subprocess.PIPE,
             timeout=120,
         )
-        if r.returncode != 0:
+        if r.returncode != 0 or len(r.stdout) < peaks:
             return _synthetic_peaks(path, peaks)
+        # stdout содержит peaks серых пикселей (1 байт каждый)
+        values = [b / 255.0 for b in r.stdout[:peaks]]
+        return values
     except (FileNotFoundError, subprocess.SubprocessError):
         return _synthetic_peaks(path, peaks)
     return _synthetic_peaks(path, peaks)

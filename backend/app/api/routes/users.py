@@ -24,6 +24,7 @@ from app.services.account_delete import delete_user_fully
 from app.services.media import save_cover
 from app.services.track_engagement import enrich_tracks_public
 from app.core.rate_limit import RateLimits, limiter
+from app.services.file_validation import validate_image_file
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -73,7 +74,7 @@ async def my_liked_tracks(
     q = (
         select(Track)
         .join(Like, Like.track_id == Track.id)
-        .where(Like.user_id == user.id, Track.is_public.is_(True))
+        .where(Like.user_id == user.id, Track.is_public.is_(True), Track.is_deleted.is_(False))
         .options(selectinload(Track.user))
         .order_by(Like.created_at.desc())
         .offset(offset)
@@ -96,7 +97,7 @@ async def my_reposted_tracks(
     q = (
         select(Track)
         .join(Repost, Repost.track_id == Track.id)
-        .where(Repost.user_id == user.id, Track.is_public.is_(True))
+        .where(Repost.user_id == user.id, Track.is_public.is_(True), Track.is_deleted.is_(False))
         .options(selectinload(Track.user))
         .order_by(Repost.created_at.desc())
         .offset(offset)
@@ -130,6 +131,8 @@ async def upload_avatar(
     ext = (file.filename or ".jpg").split(".")[-1].lower() or "jpg"
     if ext not in ("jpg", "jpeg", "png", "webp"):
         ext = "jpg"
+    # Валидация файла по magic bytes
+    validate_image_file(content, ext)
     url = save_cover(content, ext)
     user.avatar_url = url
     await db.flush()
@@ -178,6 +181,9 @@ async def upload_student_verification(
     ext = (file.filename or ".jpg").split(".")[-1].lower() or "jpg"
     if ext not in ("jpg", "jpeg", "png", "webp", "pdf"):
         ext = "jpg"
+    # Валидация файла по magic bytes (для PDF пропускаем)
+    if ext != "pdf":
+        validate_image_file(content, ext)
     url = save_cover(content, ext if ext != "pdf" else "jpg")
     user.student_verification_doc_url = url
     user.student_verification_status = "pending"
@@ -298,7 +304,7 @@ async def user_public_liked_tracks(
     q = (
         select(Track)
         .join(Like, Like.track_id == Track.id)
-        .where(Like.user_id == u.id, Track.is_public.is_(True))
+        .where(Like.user_id == u.id, Track.is_public.is_(True), Track.is_deleted.is_(False))
         .options(selectinload(Track.user))
         .order_by(Like.created_at.desc())
         .limit(lim)
@@ -325,7 +331,7 @@ async def user_public_reposted_tracks(
     q = (
         select(Track)
         .join(Repost, Repost.track_id == Track.id)
-        .where(Repost.user_id == u.id, Track.is_public.is_(True))
+        .where(Repost.user_id == u.id, Track.is_public.is_(True), Track.is_deleted.is_(False))
         .options(selectinload(Track.user))
         .order_by(Repost.created_at.desc())
         .limit(lim)
@@ -351,7 +357,7 @@ async def user_tracks(
     ensure_not_admin(u, viewer)
     q = (
         select(Track)
-        .where(Track.user_id == u.id, Track.is_public.is_(True))
+        .where(Track.user_id == u.id, Track.is_public.is_(True), Track.is_deleted.is_(False))
         .options(selectinload(Track.user))
         .order_by(Track.created_at.desc())
         .offset(offset)

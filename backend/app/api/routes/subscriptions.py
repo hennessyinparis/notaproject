@@ -13,6 +13,7 @@ from app.core.rate_limit import limiter, RateLimits
 from app.models.subscription import Subscription
 from app.models.user import ArtistSubscriptionType, User, UserSubscriptionType
 from app.schemas.user import UserPublic
+from app.services.audit import log_audit
 
 router = APIRouter(prefix="/subscriptions", tags=["subscriptions"])
 
@@ -106,6 +107,17 @@ async def purchase(
     )
     db.add(sub)
     await db.flush()
+    await log_audit(
+        db,
+        user_id=user.id,
+        username=user.username,
+        action_type="subscription_purchase",
+        entity_type="subscription",
+        entity_id=sub.id,
+        details={"plan": body.plan, "price_paid": price, "transaction_id": txn_id},
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+    )
     return UserPublic.model_validate(user, from_attributes=True)
 
 

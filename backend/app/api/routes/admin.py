@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
 from pydantic import BaseModel
 from sqlalchemy import delete, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,6 +10,7 @@ from sqlalchemy.orm import selectinload
 from app.api.deps import get_current_admin_user
 from app.core.database import get_db
 from app.models.ad import Ad
+from app.models.audit_log import AuditLog
 from app.models.comment import Comment
 from app.models.donation import Donation
 from app.models.message import Message
@@ -22,6 +23,7 @@ from app.schemas.ad import AdAdmin
 from app.schemas.donation import AdminDonationOut, AdminDonationStats
 from app.schemas.track import TrackPublic
 from app.schemas.user import UserPublic
+from app.services.audit import log_audit
 
 _reason_labels = {
     "copyright": "Нарушение авторских прав",
@@ -73,6 +75,52 @@ class SubscriptionRevenue(BaseModel):
     active_subscriptions: int
     by_plan: dict[str, float]
     count_by_plan: dict[str, int]
+
+
+class AuditLogOut(BaseModel):
+    id: int
+    user_id: Optional[int] = None
+    username: Optional[str] = None
+    action_type: str
+    entity_type: Optional[str] = None
+    entity_id: Optional[int] = None
+    details: Optional[dict] = None
+    ip_address: Optional[str] = None
+    user_agent: Optional[str] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+@router.get("/audit-logs", response_model=List[AuditLogOut])
+async def admin_audit_logs(
+    user_id: Optional[int] = None,
+    action_type: Optional[str] = None,
+    entity_type: Optional[str] = None,
+    date_from: Optional[datetime] = None,
+    date_to: Optional[datetime] = None,
+    ip_address: Optional[str] = None,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    _: User = Depends(get_current_admin_user),
+    db: AsyncSession = Depends(get_db),
+) -> List[AuditLog]:
+    stmt = select(AuditLog).order_by(AuditLog.created_at.desc())
+    if user_id is not None:
+        stmt = stmt.where(AuditLog.user_id == user_id)
+    if action_type:
+        stmt = stmt.where(AuditLog.action_type == action_type)
+    if entity_type:
+        stmt = stmt.where(AuditLog.entity_type == entity_type)
+    if date_from:
+        stmt = stmt.where(AuditLog.created_at >= date_from)
+    if date_to:
+        stmt = stmt.where(AuditLog.created_at <= date_to)
+    if ip_address:
+        stmt = stmt.where(AuditLog.ip_address == ip_address)
+    stmt = stmt.offset(offset).limit(limit)
+    r = await db.execute(stmt)
+    return list(r.scalars().all())
 
 
 @router.get("/subscription-revenue")
@@ -349,6 +397,7 @@ async def set_student_verification(
 @router.patch("/users/{user_id}/block")
 async def toggle_block_user(
     user_id: int,
+    request: Request,
     admin_user: User = Depends(get_current_admin_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
@@ -362,6 +411,18 @@ async def toggle_block_user(
     if u.is_blocked:
         u.is_admin = False
     await db.flush()
+    action = "user_block" if u.is_blocked else "user_unblock"
+    await log_audit(
+        db,
+        user_id=admin_user.id,
+        username=admin_user.username,
+        action_type=action,
+        entity_type="user",
+        entity_id=user_id,
+        details={"target_username": u.username, "target_display_name": u.display_name},
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+    )
     return {"ok": True, "is_blocked": u.is_blocked}
 
 
@@ -456,7 +517,8 @@ async def admin_toggle_track_visibility(
 @router.delete("/tracks/{track_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def admin_delete_track(
     track_id: int,
-    _: User = Depends(get_current_admin_user),
+    request: Request,
+    admin_user: User = Depends(get_current_admin_user),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     r = await db.execute(select(Track).options(selectinload(Track.user)).where(Track.id == track_id))
@@ -472,6 +534,17 @@ async def admin_delete_track(
                 p.unlink()
             except OSError:
                 pass
+    await log_audit(
+        db,
+        user_id=admin_user.id,
+        username=admin_user.username,
+        action_type="track_delete",
+        entity_type="track",
+        entity_id=track_id,
+        details={"title": t.title, "owner_id": t.user_id, "owner_username": t.user.username if t.user else None},
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+    )
 
 
 @router.get("/tracks/blocked", response_model=List[BlockedTrackOut])
@@ -602,7 +675,8 @@ async def admin_comments(
 @router.delete("/comments/{comment_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def admin_delete_comment(
     comment_id: int,
-    _: User = Depends(get_current_admin_user),
+    request: Request,
+    admin_user: User = Depends(get_current_admin_user),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     c = (await db.execute(select(Comment).where(Comment.id == comment_id))).scalar_one_or_none()
@@ -613,11 +687,23 @@ async def admin_delete_comment(
     if not tr:
         raise HTTPException(status_code=404, detail="Трек не найден")
     await db.delete(c)
+    await db.flush()
     cnt = (
         await db.execute(select(func.count()).select_from(Comment).where(Comment.track_id == track_id))
     ).scalar_one() or 0
     tr.comments_count = int(cnt)
     await db.flush()
+    await log_audit(
+        db,
+        user_id=admin_user.id,
+        username=admin_user.username,
+        action_type="comment_delete",
+        entity_type="comment",
+        entity_id=comment_id,
+        details={"track_id": track_id, "comment_text": c.text[:200] if c.text else None},
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+    )
 
 
 @router.get("/ads", response_model=list[AdAdmin])

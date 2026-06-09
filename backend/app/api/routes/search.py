@@ -39,6 +39,7 @@ async def search_all(
         .join(Track.user)
         .where(
             Track.is_public.is_(True),
+            Track.is_deleted.is_(False),
             User.is_admin.is_(False),
             User.is_deleted.is_(False),
             User.is_blocked.is_(False),
