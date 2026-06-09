@@ -960,3 +960,109 @@ async def admin_cancel_subscription(
         u.subscription_expires_at = datetime.now(timezone.utc)
 
     await db.flush()
+
+
+# ===== Withdrawals (Admin) =====
+
+from app.models.artist_balance import ArtistBalance, WithdrawalRequest
+
+
+class AdminWithdrawalOut(BaseModel):
+    id: int
+    artist_id: int
+    artist_username: str | None
+    artist_display_name: str | None
+    amount: float
+    status: str
+    bank_card_mask: str
+    recipient_name: str
+    phone: str | None
+    admin_note: str | None
+    created_at: str
+    processed_at: str | None
+
+
+class AdminWithdrawalUpdate(BaseModel):
+    status: str
+    admin_note: str | None = None
+
+
+@router.get("/withdrawals", response_model=list[AdminWithdrawalOut])
+async def admin_list_withdrawals(
+    status: Optional[str] = Query(None, pattern=r"^(pending|processing|completed|rejected)$"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    _: User = Depends(get_current_admin_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[AdminWithdrawalOut]:
+    stmt = select(WithdrawalRequest, User).join(User, User.id == WithdrawalRequest.artist_id).order_by(WithdrawalRequest.created_at.desc())
+    if status:
+        stmt = stmt.where(WithdrawalRequest.status == status)
+    stmt = stmt.offset(offset).limit(limit)
+    rows = await db.execute(stmt)
+    out = []
+    for w, artist in rows.all():
+        out.append(AdminWithdrawalOut(
+            id=w.id,
+            artist_id=w.artist_id,
+            artist_username=artist.username if artist else None,
+            artist_display_name=artist.display_name if artist else None,
+            amount=float(w.amount),
+            status=w.status,
+            bank_card_mask=w.bank_card_mask,
+            recipient_name=w.recipient_name,
+            phone=w.phone,
+            admin_note=w.admin_note,
+            created_at=w.created_at.isoformat(),
+            processed_at=w.processed_at.isoformat() if w.processed_at else None,
+        ))
+    return out
+
+
+@router.patch("/withdrawals/{request_id}", response_model=AdminWithdrawalOut)
+async def admin_update_withdrawal(
+    request_id: int,
+    body: AdminWithdrawalUpdate,
+    admin_user: User = Depends(get_current_admin_user),
+    db: AsyncSession = Depends(get_db),
+) -> AdminWithdrawalOut:
+    w = (await db.execute(select(WithdrawalRequest).where(WithdrawalRequest.id == request_id))).scalar_one_or_none()
+    if not w:
+        raise HTTPException(status_code=404, detail="Заявка не найдена")
+    if body.status not in ("pending", "processing", "completed", "rejected"):
+        raise HTTPException(status_code=400, detail="Некорректный статус")
+
+    old_status = w.status
+    w.status = body.status
+    if body.admin_note is not None:
+        w.admin_note = body.admin_note
+    if body.status in ("completed", "rejected") and old_status != body.status:
+        w.processed_at = datetime.now(timezone.utc)
+        w.processed_by = admin_user.id
+        if body.status == "completed":
+            # Зачисляем в total_withdrawn
+            balance = (await db.execute(select(ArtistBalance).where(ArtistBalance.artist_id == w.artist_id))).scalar_one_or_none()
+            if balance:
+                balance.total_withdrawn = float(balance.total_withdrawn or 0) + float(w.amount)
+        elif body.status == "rejected" and old_status != "rejected":
+            # Возвращаем на баланс
+            balance = (await db.execute(select(ArtistBalance).where(ArtistBalance.artist_id == w.artist_id))).scalar_one_or_none()
+            if balance:
+                balance.available_balance = float(balance.available_balance or 0) + float(w.amount)
+    await db.flush()
+
+    artist = await db.get(User, w.artist_id)
+    return AdminWithdrawalOut(
+        id=w.id,
+        artist_id=w.artist_id,
+        artist_username=artist.username if artist else None,
+        artist_display_name=artist.display_name if artist else None,
+        amount=float(w.amount),
+        status=w.status,
+        bank_card_mask=w.bank_card_mask,
+        recipient_name=w.recipient_name,
+        phone=w.phone,
+        admin_note=w.admin_note,
+        created_at=w.created_at.isoformat(),
+        processed_at=w.processed_at.isoformat() if w.processed_at else None,
+    )

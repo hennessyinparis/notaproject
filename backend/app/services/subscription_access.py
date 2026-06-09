@@ -18,7 +18,9 @@ def is_premium_listener(user: User | None) -> bool:
     if user is None or user.is_admin:
         return False
     sub = user.subscription_type or UserSubscriptionType.FREE.value
-    if sub not in (UserSubscriptionType.PLUS.value, UserSubscriptionType.STUDENT.value):
+    artist_sub = user.artist_subscription_type or ArtistSubscriptionType.BASIC.value
+    # Plus, Student, или Artist Pro — все считаются платными слушателями
+    if sub not in (UserSubscriptionType.PLUS.value, UserSubscriptionType.STUDENT.value) and artist_sub != ArtistSubscriptionType.PRO.value:
         return False
     return _subscription_active(user)
 

@@ -40,6 +40,7 @@ class Track(Base):
     reposts_count: Mapped[int] = mapped_column(Integer, default=0)
     comments_count: Mapped[int] = mapped_column(Integer, default=0)
     downloads_count: Mapped[int] = mapped_column(Integer, default=0)
+    paid_plays_count: Mapped[int] = mapped_column(Integer, default=0)
     is_public: Mapped[bool] = mapped_column(Boolean, default=True)
     is_downloadable: Mapped[bool] = mapped_column(Boolean, default=False)
     allow_comments: Mapped[bool] = mapped_column(Boolean, default=True)

@@ -177,6 +177,7 @@ async def studio_dashboard(
             "title": t.title,
             "genre": t.genre,
             "plays_count": t.plays_count or 0,
+            "paid_plays_count": t.paid_plays_count or 0,
             "likes_count": t.likes_count or 0,
             "reposts_count": t.reposts_count or 0,
             "comments_count": t.comments_count or 0,
@@ -190,13 +191,16 @@ async def studio_dashboard(
 
     # --- Суммарные метрики ---
     total_plays = sum(t.plays_count or 0 for t in tracks)
+    total_paid_plays = sum(t.paid_plays_count or 0 for t in tracks)
     total_likes = sum(t.likes_count or 0 for t in tracks)
     total_reposts = sum(t.reposts_count or 0 for t in tracks)
     total_comments = sum(t.comments_count or 0 for t in tracks)
     result["total_plays"] = total_plays
+    result["total_paid_plays"] = total_paid_plays
     result["total_likes"] = total_likes
     result["total_reposts"] = total_reposts
     result["total_comments"] = total_comments
+    result["earnings_from_plays"] = round(total_paid_plays * 0.04, 2)  # 0.04₽ за платное прослушивание
 
     # --- Подписчики ---
     result["followers_count"] = 0
@@ -261,6 +265,22 @@ async def studio_dashboard(
             "this_month_rub": round(float(month_rub.scalar_one() or 0), 2),
             "this_month_count": int(month_cnt.scalar_one() or 0),
         }
+
+        # Баланс артиста
+        from app.models.artist_balance import ArtistBalance
+        balance = (
+            await db.execute(select(ArtistBalance).where(ArtistBalance.artist_id == user.id))
+        ).scalar_one_or_none()
+        if balance:
+            result["balance"] = {
+                "available": float(balance.available_balance or 0),
+                "total_earned": float(balance.total_earned or 0),
+                "total_withdrawn": float(balance.total_withdrawn or 0),
+                "total_donations_earned": float(balance.total_donations_earned or 0),
+                "total_royalties_earned": float(balance.total_royalties_earned or 0),
+            }
+        else:
+            result["balance"] = {"available": 0, "total_earned": 0, "total_withdrawn": 0, "total_donations_earned": 0, "total_royalties_earned": 0}
 
         # Волна (упрощённо)
         play_count_30 = await db.execute(

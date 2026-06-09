@@ -4,6 +4,7 @@
 - Одно начисление на слушателя в месяц на трек
 - Только для Pro артистов
 - Только полные прослушивания
+- Только от пользователей с активной подпиской (Plus/Student/Artist Pro)
 """
 
 from datetime import datetime, timezone
@@ -11,6 +12,7 @@ from datetime import datetime, timezone
 from sqlalchemy import func, select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.artist_balance import ArtistBalance
 from app.models.notification import Notification, NotificationType
 from app.models.royalty import Royalty, RoyaltyStatus
 from app.models.track import Track
@@ -19,7 +21,21 @@ from app.models.user import User
 from app.services.realtime import push_notification
 from app.services.subscription_access import is_artist_pro
 
-ROYALTY_PER_COMPLETE_PLAY_RUB = 0.05
+# 0.05 total per play, платформа забирает 20% (0.01), артисту 0.04
+ROYALTY_PER_COMPLETE_PLAY_RUB = 0.04
+PLATFORM_COMMISSION_PCT = 0.20
+
+
+async def _ensure_artist_balance(db: AsyncSession, artist_id: int) -> ArtistBalance:
+    """Создает или возвращает запись баланса артиста."""
+    balance = (
+        await db.execute(select(ArtistBalance).where(ArtistBalance.artist_id == artist_id))
+    ).scalar_one_or_none()
+    if not balance:
+        balance = ArtistBalance(artist_id=artist_id)
+        db.add(balance)
+        await db.flush()
+    return balance
 
 
 async def accrue_royalty_on_complete_play(
@@ -91,5 +107,11 @@ async def accrue_royalty_on_complete_play(
         royalty.play_weight = float(royalty.play_weight or 0) + 1.0
         royalty.earned_amount = float(royalty.earned_amount or 0) + ROYALTY_PER_COMPLETE_PLAY_RUB
         royalty.supporter_count = int(royalty.supporter_count or 0) + 1
+
+    # Начисляем на баланс артиста
+    balance = await _ensure_artist_balance(db, artist_id)
+    balance.available_balance = float(balance.available_balance or 0) + ROYALTY_PER_COMPLETE_PLAY_RUB
+    balance.total_earned = float(balance.total_earned or 0) + ROYALTY_PER_COMPLETE_PLAY_RUB
+    balance.total_royalties_earned = float(balance.total_royalties_earned or 0) + ROYALTY_PER_COMPLETE_PLAY_RUB
 
     await db.flush()

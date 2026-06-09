@@ -39,6 +39,7 @@ async def _resolve_user_id(token: str) -> int | None:
 async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)) -> None:
     user_id = await _resolve_user_id(token)
     if user_id is None:
+        await websocket.accept()
         await websocket.close(code=4401, reason="Unauthorized")
         return
 

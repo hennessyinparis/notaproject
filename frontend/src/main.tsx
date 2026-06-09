@@ -53,6 +53,7 @@ import { AdminReportsPage } from './pages/admin/AdminReportsPage';
 import { AdminRevenuePage } from './pages/admin/AdminRevenuePage';
 import { AdminTracksPage } from './pages/admin/AdminTracksPage';
 import { AdminUsersPage } from './pages/admin/AdminUsersPage';
+import AdminWithdrawalsPage from './pages/admin/AdminWithdrawalsPage';
 
 const qc = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 60_000 } },
@@ -131,6 +132,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="ads" element={<AdminAdsPage />} />
             <Route path="reports" element={<AdminReportsPage />} />
             <Route path="audit-logs" element={<AdminAuditLogPage />} />
+            <Route path="withdrawals" element={<AdminWithdrawalsPage />} />
           </Route>
           <Route element={<App />}>
             <Route index element={<Home />} />

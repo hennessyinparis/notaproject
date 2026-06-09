@@ -15,6 +15,10 @@ import {
   HandCoins,
   Users,
   Wallet,
+  Crown,
+  UserCircle,
+  Clock,
+  MessageSquare,
 } from 'lucide-react';
 import { useState } from 'react';
 import toast from 'react-hot-toast';
@@ -28,16 +32,26 @@ import { formatNumber } from '../utils/format';
 interface StudioData {
   total_tracks: number;
   total_plays: number;
+  total_paid_plays: number;
   total_likes: number;
   total_reposts: number;
   total_comments: number;
   followers_count: number;
   is_pro: boolean;
+  earnings_from_plays: number;
+  balance?: {
+    available: number;
+    total_earned: number;
+    total_withdrawn: number;
+    total_donations_earned: number;
+    total_royalties_earned: number;
+  };
   tracks: Array<{
     id: number;
     title: string;
     genre: string | null;
     plays_count: number;
+    paid_plays_count: number;
     likes_count: number;
     reposts_count: number;
     comments_count: number;
@@ -55,6 +69,34 @@ interface StudioData {
   };
   royalties: { pending_rub: number; paid_rub: number };
   wave?: { coefficient: number; forecast_rub: number };
+}
+
+interface DonationItem {
+  id: number;
+  amount_rub: number;
+  message: string | null;
+  donor_display_name: string | null;
+  donor_username: string | null;
+  is_anonymous: boolean;
+  created_at: string;
+}
+
+interface DonationStats {
+  total_rub: number;
+  total_count: number;
+  this_month_rub: number;
+  this_month_count: number;
+  top_donors: Array<{
+    display_name: string;
+    username: string;
+    total_rub: number;
+    count: number;
+  }>;
+  daily_chart: Array<{
+    date: string;
+    total_rub: number;
+    count: number;
+  }>;
 }
 
 function StatCard({
@@ -125,6 +167,20 @@ export function Studio() {
     refetchInterval: 15_000,
   });
 
+  const donationsQ = useQuery<DonationItem[], Error>({
+    queryKey: ['studio-donations'],
+    queryFn: () => api.get<DonationItem[]>('/api/donations/me/received?limit=5').then((r) => r.data),
+    enabled: !!user && studioQ.data?.is_pro,
+    refetchInterval: 15_000,
+  });
+
+  const donationStatsQ = useQuery<DonationStats, Error>({
+    queryKey: ['studio-donation-stats'],
+    queryFn: () => api.get<DonationStats>('/api/donations/me/received/stats').then((r) => r.data),
+    enabled: !!user && studioQ.data?.is_pro,
+    refetchInterval: 30_000,
+  });
+
   useEffect(() => {
     if (studioQ.error) {
       const err = studioQ.error as any;
@@ -138,6 +194,11 @@ export function Studio() {
 
   const [editingTrack, setEditingTrack] = useState<{ id: number; title: string } | null>(null);
   const [title, setTitle] = useState('');
+  const [withdrawOpen, setWithdrawOpen] = useState(false);
+  const [withdrawAmount, setWithdrawAmount] = useState('');
+  const [withdrawCard, setWithdrawCard] = useState('');
+  const [withdrawName, setWithdrawName] = useState('');
+  const [withdrawPhone, setWithdrawPhone] = useState('');
 
   const updateM = useMutation({
     mutationFn: async () => {
@@ -156,6 +217,31 @@ export function Studio() {
     onSuccess: async () => {
       toast.success('Трек удалён');
       await studioQ.refetch();
+    },
+  });
+
+  const withdrawM = useMutation({
+    mutationFn: async () => {
+      const amount = parseFloat(withdrawAmount);
+      if (isNaN(amount) || amount <= 0) throw new Error('Неверная сумма');
+      return api.post('/api/donations/me/withdraw', {
+        amount,
+        bank_card: withdrawCard.replace(/\s/g, ''),
+        recipient_name: withdrawName.trim(),
+        phone: withdrawPhone.trim() || undefined,
+      });
+    },
+    onSuccess: async () => {
+      toast.success('Заявка на вывод создана');
+      setWithdrawOpen(false);
+      setWithdrawAmount('');
+      setWithdrawCard('');
+      setWithdrawName('');
+      setWithdrawPhone('');
+      await studioQ.refetch();
+    },
+    onError: (err: any) => {
+      toast.error(err?.response?.data?.detail || 'Ошибка вывода');
     },
   });
 
@@ -206,7 +292,7 @@ export function Studio() {
           </div>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
             <StatCard icon={Music} label="Треков" value={data?.total_tracks ?? '—'} />
-            <StatCard icon={Play} label="Прослушиваний" value={formatNumber(data?.total_plays ?? 0)} />
+            <StatCard icon={Play} label="Все прослушивания" value={formatNumber(data?.total_plays ?? 0)} />
             <StatCard icon={Heart} label="Лайков" value={formatNumber(data?.total_likes ?? 0)} />
             <StatCard icon={Repeat2} label="Репостов" value={formatNumber(data?.total_reposts ?? 0)} />
             <StatCard icon={Users} label="Подписчиков" value={data?.followers_count ?? 0} />
@@ -223,12 +309,12 @@ export function Studio() {
                 Монетизация
               </h2>
             </div>
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
               <StatCard
                 icon={Wallet}
-                label="Доход"
-                value={data?.royalties?.pending_rub ? `${data.royalties.pending_rub} ₽` : '0 ₽'}
-                hint={`выплачено ${data?.royalties?.paid_rub ?? 0} ₽`}
+                label="Баланс (доступно)"
+                value={data?.balance?.available ? `${data.balance.available} ₽` : '0 ₽'}
+                hint={`заработано всего: ${data?.balance?.total_earned ?? 0} ₽`}
                 accent
               />
               <StatCard
@@ -240,6 +326,13 @@ export function Studio() {
                     ? `${data.donations.this_month_rub} ₽ в этом месяце · ${data.donations.total_count} всего`
                     : 'нет донатов'
                 }
+                accent
+              />
+              <StatCard
+                icon={Play}
+                label="Платных прослушиваний"
+                value={formatNumber(data?.total_paid_plays ?? 0)}
+                hint={`+${data?.earnings_from_plays ?? 0} ₽ за прослушивания`}
                 accent
               />
               <StatCard
@@ -269,24 +362,128 @@ export function Studio() {
           </div>
         )}
 
-        {/* ----- Pro-блок: Донаты (график) ----- */}
-        {isPro && (data?.donations?.total_count ?? 0) > 0 && (
+        {/* ----- Pro-блок: Баланс и вывод ----- */}
+        {isPro && (
           <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-surface)] p-5 shadow-[var(--shadow-hover)]">
-            <div className="mb-2 flex items-center gap-2">
-              <Gift className="h-4 w-4 text-[var(--primary)]" />
-              <h3 className="text-sm font-bold text-[var(--text-primary)]">Донаты</h3>
-              <span className="ml-auto text-xs text-[var(--text-muted)]">
-                {data?.donations?.this_month_rub ?? 0} ₽ в этом месяце
-              </span>
+            <div className="mb-4 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Wallet className="h-4 w-4 text-[var(--primary)]" />
+                <h3 className="text-sm font-bold text-[var(--text-primary)]">Баланс и вывод</h3>
+              </div>
+              <button
+                type="button"
+                disabled={!data?.balance || data.balance.available < 500}
+                onClick={() => setWithdrawOpen(true)}
+                className="rounded-lg bg-[var(--primary)] px-4 py-1.5 text-sm font-semibold text-white transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Вывести
+              </button>
             </div>
-            <div className="flex items-baseline gap-4">
-              <p className="text-3xl font-bold text-[var(--primary)]">
-                {data?.donations?.total_rub ?? 0} ₽
-              </p>
-              <p className="text-sm text-[var(--text-muted)]">
-                {data?.donations?.total_count ?? 0} транзакций
-              </p>
+            <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+              <div>
+                <p className="text-2xl font-bold text-[var(--primary)]">{data?.balance?.available ?? 0} ₽</p>
+                <p className="text-xs text-[var(--text-muted)]">Доступно</p>
+              </div>
+              <div>
+                <p className="text-lg font-bold text-[var(--text-primary)]">{data?.balance?.total_earned ?? 0} ₽</p>
+                <p className="text-xs text-[var(--text-muted)]">Всего заработано</p>
+              </div>
+              <div>
+                <p className="text-lg font-bold text-[var(--text-primary)]">{data?.balance?.total_donations_earned ?? 0} ₽</p>
+                <p className="text-xs text-[var(--text-muted)]">От донатов</p>
+              </div>
+              <div>
+                <p className="text-lg font-bold text-[var(--text-primary)]">{data?.balance?.total_royalties_earned ?? 0} ₽</p>
+                <p className="text-xs text-[var(--text-muted)]">От прослушиваний</p>
+              </div>
             </div>
+            {(!data?.balance || data.balance.available < 500) && (
+              <p className="mt-2 text-xs text-[var(--text-muted)]">Минимальная сумма вывода: 500 ₽</p>
+            )}
+          </div>
+        )}
+
+        {/* ----- Pro-блок: Донаты (список + топ доноров) ----- */}
+        {isPro && (
+          <div className="grid gap-3 md:grid-cols-2">
+            {/* Последние донаты */}
+            <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-surface)] p-5 shadow-[var(--shadow-hover)]">
+              <div className="mb-3 flex items-center gap-2">
+                <Gift className="h-4 w-4 text-[var(--primary)]" />
+                <h3 className="text-sm font-bold text-[var(--text-primary)]">Последние донаты</h3>
+                <span className="ml-auto text-xs text-[var(--text-muted)]">
+                  {data?.donations?.this_month_rub ?? 0} ₽ в этом месяце
+                </span>
+              </div>
+              {donationsQ.isLoading ? (
+                <p className="text-sm text-[var(--text-muted)]">Загрузка...</p>
+              ) : donationsQ.data && donationsQ.data.length > 0 ? (
+                <div className="space-y-2">
+                  {donationsQ.data.map((d) => (
+                    <div key={d.id} className="flex items-center gap-3 rounded-xl border border-[var(--border)] p-2.5">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--primary)]/10">
+                        <UserCircle className="h-4 w-4 text-[var(--primary)]" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-medium text-[var(--text-primary)]">
+                            {d.is_anonymous ? 'Аноним' : (d.donor_display_name || d.donor_username || 'Неизвестно')}
+                          </span>
+                          <span className="text-sm font-bold text-[var(--primary)]">+{d.amount_rub} ₽</span>
+                        </div>
+                        {d.message && (
+                          <p className="mt-0.5 truncate text-xs text-[var(--text-muted)]">
+                            <MessageSquare className="mr-1 inline h-3 w-3" />
+                            {d.message}
+                          </p>
+                        )}
+                        <p className="mt-0.5 text-[10px] text-[var(--text-muted)]">
+                          <Clock className="mr-1 inline h-3 w-3" />
+                          {new Date(d.created_at).toLocaleDateString()}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-[var(--text-muted)]">Пока нет донатов</p>
+              )}
+              <div className="mt-3 flex items-baseline gap-3 border-t border-[var(--border)] pt-3">
+                <p className="text-2xl font-bold text-[var(--primary)]">{data?.donations?.total_rub ?? 0} ₽</p>
+                <p className="text-xs text-[var(--text-muted)]">{data?.donations?.total_count ?? 0} всего</p>
+              </div>
+            </div>
+
+            {/* Топ доноров */}
+            {donationStatsQ.data && donationStatsQ.data.top_donors.length > 0 && (
+              <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-surface)] p-5 shadow-[var(--shadow-hover)]">
+                <div className="mb-3 flex items-center gap-2">
+                  <Crown className="h-4 w-4 text-amber-500" />
+                  <h3 className="text-sm font-bold text-[var(--text-primary)]">Топ доноров</h3>
+                </div>
+                <div className="space-y-2">
+                  {donationStatsQ.data.top_donors.map((donor, idx) => (
+                    <div key={donor.username} className="flex items-center gap-3">
+                      <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                        idx === 0 ? 'bg-amber-500/20 text-amber-600' :
+                        idx === 1 ? 'bg-slate-300/20 text-slate-500' :
+                        idx === 2 ? 'bg-orange-500/20 text-orange-600' :
+                        'bg-[var(--bg-elevated)] text-[var(--text-muted)]'
+                      }`}>
+                        {idx + 1}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-[var(--text-primary)]">
+                          {donor.display_name || donor.username}
+                        </p>
+                        <p className="text-[10px] text-[var(--text-muted)]">{donor.count} донатов</p>
+                      </div>
+                      <span className="text-sm font-bold text-[var(--primary)]">{donor.total_rub} ₽</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -321,6 +518,10 @@ export function Studio() {
                         <span className="flex items-center gap-1">
                           <Play className="h-3 w-3" />
                           {formatNumber(track.plays_count)}
+                        </span>
+                        <span className="flex items-center gap-1 text-[var(--primary)]">
+                          <Wallet className="h-3 w-3" />
+                          {formatNumber(track.paid_plays_count ?? 0)}
                         </span>
                         <span className="flex items-center gap-1">
                           <Heart className="h-3 w-3" />
@@ -398,6 +599,83 @@ export function Studio() {
                   Сохранить
                 </Button>
                 <Button variant="secondary" onClick={() => setEditingTrack(null)}>
+                  Отмена
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Модалка вывода средств */}
+        {withdrawOpen && (
+          <div
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4"
+            onClick={() => setWithdrawOpen(false)}
+          >
+            <div
+              className="w-full max-w-md rounded-2xl border border-[var(--border)] bg-[var(--bg-surface)] p-5"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 className="mb-1 font-semibold">Вывод средств</h3>
+              <p className="mb-4 text-sm text-[var(--text-muted)]">
+                Доступно: {data?.balance?.available ?? 0} ₽ (минимум 500 ₽)
+              </p>
+              <div className="space-y-3">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Сумма (₽)</label>
+                  <input
+                    type="number"
+                    min={500}
+                    max={data?.balance?.available ?? 0}
+                    value={withdrawAmount}
+                    onChange={(e) => setWithdrawAmount(e.target.value)}
+                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] p-2.5 text-sm"
+                    placeholder="500"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Номер карты</label>
+                  <input
+                    value={withdrawCard}
+                    onChange={(e) => setWithdrawCard(e.target.value.replace(/\D/g, '').replace(/(.{4})/g, '$1 ').trim().slice(0, 23))}
+                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] p-2.5 text-sm font-mono"
+                    placeholder="0000 0000 0000 0000"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">ФИО получателя</label>
+                  <input
+                    value={withdrawName}
+                    onChange={(e) => setWithdrawName(e.target.value)}
+                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] p-2.5 text-sm"
+                    placeholder="Иванов Иван Иванович"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-[var(--text-muted)]">Телефон (опционально)</label>
+                  <input
+                    value={withdrawPhone}
+                    onChange={(e) => setWithdrawPhone(e.target.value)}
+                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] p-2.5 text-sm"
+                    placeholder="+7 (999) 000-00-00"
+                  />
+                </div>
+              </div>
+              <div className="mt-4 flex gap-2">
+                <Button
+                  onClick={() => withdrawM.mutate()}
+                  loading={withdrawM.isPending}
+                  disabled={
+                    !withdrawAmount ||
+                    parseFloat(withdrawAmount) < 500 ||
+                    parseFloat(withdrawAmount) > (data?.balance?.available ?? 0) ||
+                    withdrawCard.replace(/\s/g, '').length < 16 ||
+                    !withdrawName.trim()
+                  }
+                >
+                  Создать заявку
+                </Button>
+                <Button variant="secondary" onClick={() => setWithdrawOpen(false)}>
                   Отмена
                 </Button>
               </div>

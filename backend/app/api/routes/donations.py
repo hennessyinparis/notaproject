@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user, get_current_user_optional
 from app.core.database import get_db
 from app.models.donation import Donation
+from app.models.artist_balance import ArtistBalance
 from app.models.notification import Notification, NotificationType
 from app.models.user import User
 from app.schemas.donation import DonateBody, DonationOut, DonationStats
@@ -15,6 +16,8 @@ from app.services.realtime import push_notification
 from app.services.subscription_access import is_artist_pro
 
 router = APIRouter(prefix="/donations", tags=["donations"])
+
+DONATION_PLATFORM_FEE_PCT = 0.05  # 5% комиссия платформы
 
 
 @router.post("/{username}", response_model=dict)
@@ -38,6 +41,10 @@ async def donate_to_artist(
     if artist.id == user.id:
         raise HTTPException(status_code=400, detail="Нельзя задонатить себе")
 
+    # Комиссия платформы 5%
+    platform_fee = round(body.amount_rub * DONATION_PLATFORM_FEE_PCT, 2)
+    artist_net = round(body.amount_rub - platform_fee, 2)
+
     donation = Donation(
         donor_id=user.id,
         artist_id=artist.id,
@@ -46,6 +53,19 @@ async def donate_to_artist(
         is_anonymous=body.is_anonymous,
     )
     db.add(donation)
+    await db.flush()
+
+    # Начисляем на баланс артиста (за вычетом комиссии)
+    balance = (
+        await db.execute(select(ArtistBalance).where(ArtistBalance.artist_id == artist.id))
+    ).scalar_one_or_none()
+    if not balance:
+        balance = ArtistBalance(artist_id=artist.id)
+        db.add(balance)
+        await db.flush()
+    balance.available_balance = float(balance.available_balance or 0) + artist_net
+    balance.total_earned = float(balance.total_earned or 0) + artist_net
+    balance.total_donations_earned = float(balance.total_donations_earned or 0) + artist_net
     await db.flush()
 
     notif = Notification(
@@ -59,7 +79,7 @@ async def donate_to_artist(
     await db.flush()
     await push_notification(db, artist.id, notif)
 
-    return {"ok": True, "donation_id": donation.id}
+    return {"ok": True, "donation_id": donation.id, "artist_net": artist_net}
 
 
 @router.get("/artist/{username}/summary")
@@ -184,3 +204,110 @@ async def my_donation_stats(
         top_donors=top_donors,
         daily_chart=daily_chart,
     )
+
+
+# ===== Баланс и вывод средств =====
+
+from pydantic import BaseModel, Field
+from app.models.artist_balance import ArtistBalance, WithdrawalRequest
+
+
+class WithdrawalCreate(BaseModel):
+    amount: float = Field(..., gt=0, le=100_000)
+    bank_card: str = Field(..., min_length=16, max_length=20)
+    recipient_name: str = Field(..., min_length=2, max_length=255)
+    phone: str | None = Field(None, max_length=32)
+
+
+@router.get("/me/balance", response_model=dict)
+async def my_balance(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Баланс артиста для вывода."""
+    if not is_artist_pro(user):
+        return {"available": 0, "total_earned": 0, "total_withdrawn": 0, "currency": "RUB"}
+    balance = (
+        await db.execute(select(ArtistBalance).where(ArtistBalance.artist_id == user.id))
+    ).scalar_one_or_none()
+    if not balance:
+        return {"available": 0, "total_earned": 0, "total_withdrawn": 0, "currency": "RUB"}
+    return {
+        "available": float(balance.available_balance or 0),
+        "total_earned": float(balance.total_earned or 0),
+        "total_withdrawn": float(balance.total_withdrawn or 0),
+        "total_donations_earned": float(balance.total_donations_earned or 0),
+        "total_royalties_earned": float(balance.total_royalties_earned or 0),
+        "currency": "RUB",
+    }
+
+
+@router.post("/me/withdraw", response_model=dict)
+async def request_withdrawal(
+    body: WithdrawalCreate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Заявка на вывод средств. Минимум 500₽."""
+    if not is_artist_pro(user):
+        raise HTTPException(status_code=403, detail="Вывод доступен только артистам с подпиской Pro")
+
+    balance = (
+        await db.execute(select(ArtistBalance).where(ArtistBalance.artist_id == user.id))
+    ).scalar_one_or_none()
+    if not balance:
+        raise HTTPException(status_code=400, detail="Нет доступных средств")
+
+    available = float(balance.available_balance or 0)
+    if available < 500:
+        raise HTTPException(status_code=400, detail=f"Минимальная сумма вывода 500₽. Доступно: {available}₽")
+    if body.amount > available:
+        raise HTTPException(status_code=400, detail=f"Недостаточно средств. Доступно: {available}₽")
+
+    # Маскируем карту (показываем только последние 4 цифры)
+    card_clean = body.bank_card.replace(" ", "").replace("-", "")
+    card_mask = f"**** **** **** {card_clean[-4:]}" if len(card_clean) >= 4 else "****"
+
+    req = WithdrawalRequest(
+        artist_id=user.id,
+        amount=round(body.amount, 2),
+        bank_card_mask=card_mask,
+        recipient_name=body.recipient_name.strip(),
+        phone=body.phone.strip() if body.phone else None,
+    )
+    db.add(req)
+    # Блокируем сумму на балансе
+    balance.available_balance = available - body.amount
+    await db.flush()
+
+    return {"ok": True, "request_id": req.id, "amount": body.amount, "status": "pending"}
+
+
+@router.get("/me/withdrawals", response_model=list[dict])
+async def my_withdrawals(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[dict]:
+    """История заявок на вывод."""
+    rows = await db.execute(
+        select(WithdrawalRequest)
+        .where(WithdrawalRequest.artist_id == user.id)
+        .order_by(WithdrawalRequest.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+    )
+    result = []
+    for r in rows.scalars().all():
+        result.append({
+            "id": r.id,
+            "amount": float(r.amount),
+            "status": r.status,
+            "bank_card_mask": r.bank_card_mask,
+            "recipient_name": r.recipient_name,
+            "admin_note": r.admin_note,
+            "created_at": r.created_at.isoformat(),
+            "processed_at": r.processed_at.isoformat() if r.processed_at else None,
+        })
+    return result

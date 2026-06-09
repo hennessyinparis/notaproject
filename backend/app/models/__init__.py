@@ -1,3 +1,4 @@
+from app.models.artist_balance import ArtistBalance, WithdrawalRequest
 from app.models.audit_log import AuditLog
 from app.models.comment import Comment
 from app.models.donation import Donation
@@ -16,6 +17,8 @@ from app.models.track_play import TrackPlay, TrackPlaySource
 from app.models.user import ArtistSubscriptionType, User, UserSubscriptionType
 
 __all__ = [
+    "ArtistBalance",
+    "WithdrawalRequest",
     "AuditLog",
     "User",
     "UserSubscriptionType",

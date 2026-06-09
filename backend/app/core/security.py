@@ -41,6 +41,12 @@ def create_refresh_token(data: dict[str, Any]) -> str:
 
 def decode_token(token: str) -> Optional[dict[str, Any]]:
     try:
-        return jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        # Дополнительная проверка exp (python-jose может пропускать)
+        if payload.get("exp"):
+            from datetime import datetime, timezone
+            if datetime.now(timezone.utc).timestamp() > payload["exp"]:
+                return None
+        return payload
     except JWTError:
         return None

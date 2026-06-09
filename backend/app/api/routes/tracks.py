@@ -344,10 +344,23 @@ async def report_play(
             source=body.source,
         )
         db.add(play)
-        await db.execute(
-            update(Track).where(Track.id == track_id).values(plays_count=Track.plays_count + 1)
-        )
-        if body.is_complete and user:
+        
+        # Инкрементируем общий счетчик прослушиваний для всех
+        play_incr = {"plays_count": Track.plays_count + 1}
+        
+        # Платные прослушивания: только зарегистрированные пользователи с активной подпиской
+        is_paid = False
+        if user and body.is_complete:
+            # Проверяем активную подписку (Plus, Student, Artist Pro — все платные)
+            from app.services.subscription_access import is_premium_listener
+            if is_premium_listener(user):
+                is_paid = True
+                play_incr["paid_plays_count"] = Track.paid_plays_count + 1
+        
+        await db.execute(update(Track).where(Track.id == track_id).values(**play_incr))
+        
+        # Роялти только за платные прослушивания от подписчиков
+        if is_paid:
             await accrue_royalty_on_complete_play(db, t, user)
     return {"ok": True}
 

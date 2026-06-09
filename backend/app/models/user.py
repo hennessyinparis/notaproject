@@ -58,3 +58,7 @@ class User(Base):
     )
 
     tracks: Mapped[List["Track"]] = relationship("Track", back_populates="user", foreign_keys="Track.user_id")
+    balance: Mapped[Optional["ArtistBalance"]] = relationship("ArtistBalance", back_populates="artist", uselist=False)
+    withdrawal_requests: Mapped[List["WithdrawalRequest"]] = relationship(
+        "WithdrawalRequest", back_populates="artist", foreign_keys="WithdrawalRequest.artist_id"
+    )
