@@ -20,6 +20,7 @@ import {
   Clock,
   MessageSquare,
 } from 'lucide-react';
+
 import { useState } from 'react';
 import toast from 'react-hot-toast';
 
@@ -68,7 +69,6 @@ interface StudioData {
     this_month_count: number;
   };
   royalties: { pending_rub: number; paid_rub: number };
-  wave?: { coefficient: number; forecast_rub: number };
 }
 
 interface DonationItem {
@@ -132,28 +132,83 @@ function StatCard({
   );
 }
 
+function formatDateLabel(dateStr: string): string {
+  const d = new Date(dateStr);
+  return `${d.getDate().toString().padStart(2, '0')}.${(d.getMonth() + 1).toString().padStart(2, '0')}`;
+}
+
 function MiniChart({ data }: { data: Array<{ date: string; plays: number }> }) {
+  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
   if (!data.length) return <p className="text-sm text-[var(--text-muted)]">Нет данных за 14 дней</p>;
-  const maxVal = Math.max(...data.map((d) => d.plays), 1);
+
+  const chartData = data.map((d) => ({
+    ...d,
+    label: formatDateLabel(d.date),
+  }));
+  const total = data.reduce((sum, d) => sum + d.plays, 0);
+  const maxVal = Math.max(...chartData.map((d) => d.plays), 1);
+  const maxLog = Math.log10(maxVal + 1);
+
+  const hovered = hoveredIdx !== null ? chartData[hoveredIdx] : null;
+
   return (
-    <div className="flex items-end gap-[3px]" style={{ height: 120 }}>
-      {data.map((d) => {
-        const h = (d.plays / maxVal) * 100;
-        return (
-          <div
-            key={d.date}
-            className="flex flex-1 flex-col items-center gap-1"
-            title={`${d.date}: ${d.plays} прослушиваний`}
-          >
-            <span className="text-[8px] font-medium text-[var(--text-muted)]">{d.plays}</span>
+    <div className="space-y-3">
+      <div className="flex items-center justify-between text-xs text-[var(--text-muted)]">
+        <span>{chartData[0]?.label} — {chartData[chartData.length - 1]?.label}</span>
+        <span className="font-medium">{total} всего</span>
+      </div>
+
+      {/* Chart area - bigger, fixed layout */}
+      <div className="h-[280px] flex items-end gap-[3px] px-1">
+        {chartData.map((d, i) => {
+          const logHeight = Math.log10(d.plays + 1) / maxLog;
+          const barHeight = Math.max(logHeight * 240, d.plays > 0 ? 4 : 2);
+          const isHovered = hoveredIdx === i;
+          const brightness = 0.4 + (d.plays / maxVal) * 0.6;
+
+          return (
             <div
-              className="w-full rounded-t bg-gradient-to-t from-[var(--primary)]/60 to-[var(--primary)]/30 transition-all"
-              style={{ height: `${Math.max(h, 3)}%`, minHeight: 3 }}
-            />
-            <span className="text-[7px] text-[var(--text-muted)]">{d.date.slice(5)}</span>
+              key={d.date}
+              className="flex-1 flex flex-col items-center justify-end min-w-[28px]"
+              onMouseEnter={() => setHoveredIdx(i)}
+              onMouseLeave={() => setHoveredIdx(null)}
+            >
+              {/* Bar - no hover text above, layout stays fixed */}
+              <div
+                className="w-full rounded-t-lg transition-all duration-150"
+                style={{
+                  height: `${barHeight}px`,
+                  backgroundColor: 'var(--primary)',
+                  opacity: isHovered ? 1 : brightness,
+                  filter: isHovered ? 'brightness(1.2)' : 'none',
+                }}
+              />
+            </div>
+          );
+        })}
+      </div>
+
+      {/* X-axis labels - separate row, no hover effect */}
+      <div className="flex gap-[3px] px-1">
+        {chartData.map((d, i) => (
+          <div key={d.date} className="flex-1 text-center min-w-[28px]">
+            <span className={`text-[10px] ${i % 2 === 0 ? 'text-[var(--text-muted)]' : 'text-transparent'}`}>
+              {d.label}
+            </span>
           </div>
-        );
-      })}
+        ))}
+      </div>
+
+      {/* Info panel below chart - shows on hover */}
+      <div className="h-6 flex items-center justify-center text-xs">
+        {hovered && (
+          <span className="font-medium">
+            <span className="text-[var(--text-primary)]">{hovered.label}</span>
+            {' — '}
+            <span className="text-[var(--primary)] font-bold">{hovered.plays} прослушиваний</span>
+          </span>
+        )}
+      </div>
     </div>
   );
 }
@@ -332,14 +387,13 @@ export function Studio() {
                 icon={Play}
                 label="Платных прослушиваний"
                 value={formatNumber(data?.total_paid_plays ?? 0)}
-                hint={`+${data?.earnings_from_plays ?? 0} ₽ за прослушивания`}
                 accent
               />
               <StatCard
                 icon={TrendingUp}
-                label="Волна"
-                value={data?.wave?.coefficient ?? '—'}
-                hint={`прогноз: ${data?.wave?.forecast_rub ?? 0} ₽`}
+                label="Доход"
+                value={`${data?.earnings_from_plays ?? 0} ₽`}
+                hint="от прослушиваний подписчиками"
                 accent
               />
             </div>

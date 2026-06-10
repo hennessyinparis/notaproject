@@ -219,7 +219,8 @@ async def studio_dashboard(
     result["is_pro"] = is_pro
 
     if is_pro and track_ids:
-        # Дневные прослушивания (14 дней)
+        # Дневные прослушивания (14 дней) — заполняем пустые дни нулями
+        from collections import OrderedDict
         fourteen_days_ago = datetime.now(timezone.utc) - timedelta(days=14)
         daily = await db.execute(
             select(
@@ -230,10 +231,13 @@ async def studio_dashboard(
             .group_by(text("day"))
             .order_by(text("day"))
         )
-        result["plays_daily"] = [
-            {"date": str(row[0].date()), "plays": row[1]}
-            for row in daily.all()
-        ]
+        raw_map = {str(row[0].date()): row[1] for row in daily.all()}
+        # Заполняем 14 дней подряд
+        plays_daily = []
+        for i in range(14):
+            day = (datetime.now(timezone.utc) - timedelta(days=13 - i)).date().isoformat()
+            plays_daily.append({"date": day, "plays": raw_map.get(day, 0)})
+        result["plays_daily"] = plays_daily
 
         # Роялти
         rq = await db.execute(select(Royalty).where(Royalty.artist_id == user.id))
@@ -282,17 +286,6 @@ async def studio_dashboard(
         else:
             result["balance"] = {"available": 0, "total_earned": 0, "total_withdrawn": 0, "total_donations_earned": 0, "total_royalties_earned": 0}
 
-        # Волна (упрощённо)
-        play_count_30 = await db.execute(
-            select(func.count()).select_from(TrackPlay)
-            .where(TrackPlay.track_id.in_(track_ids), TrackPlay.created_at >= datetime.now(timezone.utc) - timedelta(days=30))
-        )
-        pc = play_count_30.scalar_one() or 0
-        coeff = min(100.0, float(pc) ** 0.5)
-        result["wave"] = {
-            "coefficient": round(coeff, 2),
-            "forecast_rub": round(coeff * 12.5, 2),
-        }
     else:
         result["plays_daily"] = []
         result["donations"] = {"total_rub": 0, "total_count": 0, "this_month_rub": 0, "this_month_count": 0}

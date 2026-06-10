@@ -18,6 +18,7 @@ interface Comment {
   track_id: number;
   text: string;
   timestamp_seconds: number;
+  parent_id: number | null;
   likes_count: number;
   created_at: string;
   author_username: string | null;
@@ -106,102 +107,114 @@ export function Comments({ trackId }: { trackId: number }) {
 
   if (isLoading) return <div className="text-sm text-[var(--text-muted)]">Загрузка...</div>;
 
+  // Thread comments: group replies under parent
+  const topLevel = (comments ?? []).filter((c) => c.parent_id == null);
+  const replies = (comments ?? []).filter((c) => c.parent_id != null);
+
+  const renderComment = (comment: Comment, isReply = false) => {
+    const av = avatarUrl(comment.author_avatar);
+    const commentReplies = replies.filter((r) => r.parent_id === comment.id);
+    return (
+      <div key={comment.id} className={`flex gap-3 ${isReply ? 'ml-10 mt-3' : ''}`}>
+        <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-full bg-[var(--bg-elevated)] ring-1 ring-black/5 dark:ring-white/10">
+          {av ? (
+            <img src={av} alt="" className="h-full w-full object-cover" />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center bg-[var(--primary-light)] text-sm font-bold text-[var(--primary)]">
+              {comment.author_display?.[0] || comment.author_username?.[0] || '?'}
+            </div>
+          )}
+        </div>
+        <div className="flex-1">
+          <div className="flex items-center gap-2">
+            <Link to={`/artist/${comment.author_username ?? ''}`} className="text-sm font-semibold hover:underline">
+              {comment.author_display || comment.author_username}
+            </Link>
+            <span className="text-xs text-[var(--text-muted)]">
+              {new Date(comment.created_at).toLocaleDateString()}
+            </span>
+            {comment.timestamp_seconds > 0 && (
+              <span className="text-xs text-[var(--primary)] font-mono">
+                {formatTime(comment.timestamp_seconds)}
+              </span>
+            )}
+          </div>
+          <p className="mt-1 text-sm text-[var(--text-secondary)]">{comment.text}</p>
+          <div className="flex items-center gap-3 mt-1">
+            <button
+              type="button"
+              onClick={() => setReplyToId(replyToId === comment.id ? null : comment.id)}
+              className="flex items-center gap-1 text-xs text-[var(--text-muted)] hover:text-[var(--primary)]"
+            >
+              <MessageSquare className="h-3 w-3" />
+              {replyToId === comment.id ? 'Отмена' : 'Ответить'}
+            </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (!accessToken) {
+                goToLogin(navigate);
+                return;
+              }
+              likeMutation.mutate({ commentId: comment.id, isLiked: comment.is_liked });
+            }}
+            className="mt-1 flex items-center gap-1 text-xs text-[var(--text-muted)] hover:text-[var(--primary)]"
+          >
+            <Heart className={`h-3 w-3 ${comment.is_liked ? 'fill-current text-[var(--primary)]' : ''}`} />
+            {comment.likes_count}
+          </button>
+          {me && me.id === comment.user_id && (
+            <button
+              type="button"
+              onClick={() => deleteMutation.mutate(comment.id)}
+              className="ml-3 mt-1 text-xs text-[var(--error)] hover:underline"
+            >
+              Удалить
+            </button>
+          )}
+            {accessToken && me && !me.is_admin && (
+            <button
+              type="button"
+              onClick={() => setReportCommentId(comment.id)}
+              className="text-xs text-[var(--text-muted)] hover:text-red-400"
+              title="Пожаловаться"
+            >
+              <Flag className="h-3 w-3" />
+            </button>
+          )}
+          </div>
+          {replyToId === comment.id && (
+            <div className="mt-2 flex gap-2">
+              <input
+                value={replyText}
+                onChange={(e) => setReplyText(e.target.value)}
+                placeholder={isReply ? 'Ответить...' : 'Ответить...'}
+                className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-1.5 text-xs text-[var(--text-primary)] outline-none focus:ring-2 focus:ring-[var(--primary)]"
+              />
+              <button
+                type="button"
+                disabled={!replyText.trim() || replyMutation.isPending}
+                onClick={() => replyMutation.mutate({ parentId: comment.id, text: replyText })}
+                className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-xs font-semibold text-white transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Ответить
+              </button>
+            </div>
+          )}
+          {commentReplies.length > 0 && (
+            <div className="mt-3 space-y-3">
+              {commentReplies.map((reply) => renderComment(reply, true))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-4">
       {comments?.length ? null : <div className="text-sm text-[var(--text-muted)]">Комментариев пока нет</div>}
-      {(comments ?? []).map((comment) => {
-        const av = avatarUrl(comment.author_avatar);
-        return (
-        <div key={comment.id} className="flex gap-3">
-          <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-full bg-[var(--bg-elevated)] ring-1 ring-black/5 dark:ring-white/10">
-            {av ? (
-              <img src={av} alt="" className="h-full w-full object-cover" />
-            ) : (
-              <div className="flex h-full w-full items-center justify-center bg-[var(--primary-light)] text-sm font-bold text-[var(--primary)]">
-                {comment.author_display?.[0] || comment.author_username?.[0] || '?'}
-              </div>
-            )}
-          </div>
-          <div className="flex-1">
-            <div className="flex items-center gap-2">
-              <Link to={`/artist/${comment.author_username ?? ''}`} className="text-sm font-semibold hover:underline">
-                {comment.author_display || comment.author_username}
-              </Link>
-              <span className="text-xs text-[var(--text-muted)]">
-                {new Date(comment.created_at).toLocaleDateString()}
-              </span>
-              {comment.timestamp_seconds > 0 && (
-                <span className="text-xs text-[var(--primary)] font-mono">
-                  {formatTime(comment.timestamp_seconds)}
-                </span>
-              )}
-            </div>
-            <p className="mt-1 text-sm text-[var(--text-secondary)]">{comment.text}</p>
-            <div className="flex items-center gap-3 mt-1">
-              <button
-                type="button"
-                onClick={() => setReplyToId(comment.id)}
-                className="flex items-center gap-1 text-xs text-[var(--text-muted)] hover:text-[var(--primary)]"
-              >
-                <MessageSquare className="h-3 w-3" />
-                Ответить
-              </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (!accessToken) {
-                  goToLogin(navigate);
-                  return;
-                }
-                likeMutation.mutate({ commentId: comment.id, isLiked: comment.is_liked });
-              }}
-              className="mt-1 flex items-center gap-1 text-xs text-[var(--text-muted)] hover:text-[var(--primary)]"
-            >
-              <Heart className={`h-3 w-3 ${comment.is_liked ? 'fill-current text-[var(--primary)]' : ''}`} />
-              {comment.likes_count}
-            </button>
-            {me && me.id === comment.user_id && (
-              <button
-                type="button"
-                onClick={() => deleteMutation.mutate(comment.id)}
-                className="ml-3 mt-1 text-xs text-[var(--error)] hover:underline"
-              >
-                Удалить
-              </button>
-            )}
-              {accessToken && me && !me.is_admin && (
-              <button
-                type="button"
-                onClick={() => setReportCommentId(comment.id)}
-                className="text-xs text-[var(--text-muted)] hover:text-red-400"
-                title="Пожаловаться"
-              >
-                <Flag className="h-3 w-3" />
-              </button>
-            )}
-            </div>
-            {replyToId === comment.id && (
-              <div className="mt-2 flex gap-2">
-                <input
-                  value={replyText}
-                  onChange={(e) => setReplyText(e.target.value)}
-                  placeholder="Ответить..."
-                  className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-1.5 text-xs text-[var(--text-primary)] outline-none focus:ring-2 focus:ring-[var(--primary)]"
-                />
-                <button
-                  type="button"
-                  disabled={!replyText.trim() || replyMutation.isPending}
-                  onClick={() => replyMutation.mutate({ parentId: comment.id, text: replyText })}
-                  className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-xs font-semibold text-white transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  Ответить
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-        );
-      })}
+      {topLevel.map((comment) => renderComment(comment))}
       <ReportModal open={reportCommentId !== null} onClose={() => setReportCommentId(null)} reportType="comment" targetId={reportCommentId ?? 0} />
       {accessToken ? (
         <div className="pt-2">

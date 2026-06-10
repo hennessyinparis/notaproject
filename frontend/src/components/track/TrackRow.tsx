@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Flag, Heart, Link2, ListMusic, MessageCircle, MoreHorizontal, Music2, Pause, Play, Repeat, Repeat2, Share2 } from 'lucide-react';
+import { Flag, Heart, Link2, ListMusic, ListPlus, MessageCircle, MoreHorizontal, Music2, Pause, Play, Repeat, Repeat2, Share2 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useNavigate } from 'react-router-dom';
@@ -267,6 +267,17 @@ export function TrackRow({ track, index, queue, showPlayCount = false }: TrackRo
           type="button"
           className={menuItemCls}
           onClick={() => {
+            usePlayerStore.getState().addToQueue(track);
+            setMenuOpen(false);
+          }}
+        >
+          <ListPlus className="h-4 w-4 shrink-0 text-[var(--text-muted)]" aria-hidden />
+          В очередь
+        </button>
+        <button
+          type="button"
+          className={menuItemCls}
+          onClick={() => {
             if (!accessToken) {
               goToLogin(navigate);
               setMenuOpen(false);
@@ -466,6 +477,17 @@ export function TrackRow({ track, index, queue, showPlayCount = false }: TrackRo
             }}
           >
             <Repeat className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+          </button>
+          <button
+            type="button"
+            className={iconBtn}
+            title="В очередь"
+            aria-label="В очередь"
+            onClick={() => {
+              usePlayerStore.getState().addToQueue(track);
+            }}
+          >
+            <ListPlus className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
           </button>
           {!currentUser?.is_admin && (
             <button

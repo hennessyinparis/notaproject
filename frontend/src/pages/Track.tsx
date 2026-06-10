@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Flag, Gift, Heart, Share2, Repeat, Play, Eye, Music, Tag, MessageCircle } from 'lucide-react';
+import { Flag, Gift, Heart, ListPlus, Share2, Repeat, Play, Eye, Music, Tag, MessageCircle } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
@@ -11,8 +11,8 @@ import { ReportModal } from '../components/report/ReportModal';
 import { Comments } from '../components/track/Comments';
 import { DonateModal } from '../components/artist/DonateModal';
 import { Waveform } from '../components/player/Waveform';
-import { TrackRow } from '../components/track/TrackRow';
-import { TrackRowStack } from '../components/track/TrackRowStack';
+import { SectionHeader } from '../components/common/SectionHeader';
+import { TrackCard } from '../components/track/TrackCard';
 import { useAuthStore } from '../store/authStore';
 import { goToLogin } from '../utils/authNavigation';
 import { usePlayerStore } from '../store/playerStore';
@@ -221,6 +221,9 @@ export function TrackPage() {
             <Button variant="secondary" onClick={() => requireAuth(() => setShowPlaylistModal(true))}>
               + В плейлист
             </Button>
+            <Button variant="secondary" onClick={() => usePlayerStore.getState().addToQueue(track)}>
+              <ListPlus className="mr-2 h-4 w-4" /> В очередь
+            </Button>
           </div>
           <TrackPremiumActions track={track} className="mt-4" />
           <p className="mt-6 text-[var(--text-secondary)]">{track.description}</p>
@@ -255,16 +258,16 @@ export function TrackPage() {
       </p>
 
       {(relatedQ.data?.length ?? 0) > 0 && (
-        <div className="mt-8">
-          <h3 className="mb-3 font-semibold">Похожие треки</h3>
-          <TrackRowStack>
-            {relatedQ.data!.map((t, idx) => (
-              <div key={t.id} onClick={() => navigate(`/track/${t.id}`)} className="cursor-pointer">
-                <TrackRow track={t} index={idx} queue={relatedQ.data!} />
+        <section className="mt-8">
+          <SectionHeader title="Похожие треки" />
+          <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-thin">
+            {relatedQ.data!.map((t) => (
+              <div key={t.id} className="w-40 shrink-0 sm:w-44">
+                <TrackCard track={t} queue={relatedQ.data} size="compact" />
               </div>
             ))}
-          </TrackRowStack>
-        </div>
+          </div>
+        </section>
       )}
 
       {track.allow_comments && (

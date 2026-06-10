@@ -81,6 +81,7 @@ interface PlayerState {
   toggleShuffle: () => void;
   reorderQueue: (from: number, to: number) => void;
   removeFromQueue: (index: number) => void;
+  addToQueue: (track: Track) => void;
   setFullscreen: (v: boolean) => void;
   setSleepTimer: (minutes: number | null) => void;
   tickSleepTimer: () => void;
@@ -409,6 +410,21 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     } else set({ queue: q, currentIndex: ci });
   },
 
+  addToQueue: (track) => {
+    const q = [...get().queue];
+    if (!q.some((t) => t.id === track.id)) {
+      q.push(normalizeTrack(track));
+      set({ queue: q });
+      import('react-hot-toast').then((mod) => {
+        mod.toast('Добавлено в очередь', { icon: '🎵' });
+      }).catch(() => {});
+    } else {
+      import('react-hot-toast').then((mod) => {
+        mod.toast('Трек уже в очереди', { icon: 'ℹ️' });
+      }).catch(() => {});
+    }
+  },
+
   setFullscreen: (v) => set({ fullscreen: v }),
 
   setSleepTimer: (minutes) => {
@@ -428,11 +444,14 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     const end = get().sleepTimerEnd;
     if (!end) return;
     if (Date.now() >= end) {
-      get().howl?.stop();
-      get().pause();
+      get().stop();
       set({ sleepTimerEnd: null });
       if (sleepInterval) clearInterval(sleepInterval);
       sleepInterval = null;
+      // Use dynamic import to avoid circular dependency
+      import('react-hot-toast').then((mod) => {
+        mod.toast('Таймер сна сработал, музыка остановлена', { icon: '💤' });
+      }).catch(() => {});
     }
   },
 }));

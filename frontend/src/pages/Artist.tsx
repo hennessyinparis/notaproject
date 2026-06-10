@@ -113,6 +113,12 @@ export function ArtistPage() {
     enabled: !!username,
   });
 
+  const popularTracksQ = useQuery({
+    queryKey: ['user-popular-tracks', username],
+    queryFn: () => api.get<Track[]>(`/api/users/${username}/tracks/popular`).then((r) => r.data),
+    enabled: !!username,
+  });
+
   const followersQ = useQuery({
     queryKey: ['user-followers-count', username],
     queryFn: () => api.get<{ count: number }>(`/api/users/${username}/followers/count`).then((r) => r.data),
@@ -770,52 +776,54 @@ export function ArtistPage() {
         </div>
       </div>
 
-      {tracksQ.data && tracksQ.data.length > 0 ? (
+      {(tracksQ.data && tracksQ.data.length > 0) || (popularTracksQ.data && popularTracksQ.data.length > 0) ? (
         <>
-          <section>
-            <SectionHeader title="Популярные треки" />
-            <div
-              className="mb-2 hidden items-end gap-x-2 border-b border-[var(--border)] pb-2 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] sm:grid sm:text-[11px]"
-              style={{ gridTemplateColumns: TRACK_ROW_GRID_WITH_PLAY_COUNT }}
-              aria-hidden
-            >
-              <span />
-              <span />
-              <span className="min-w-0 pb-0.5 text-left leading-tight">Трек</span>
-              <span className="min-w-0 pb-0.5 text-center leading-tight" title="Действия">
-                {' '}
-              </span>
-              <span className="min-w-0 whitespace-nowrap pb-0.5 text-right leading-tight" title="Прослушивания">
-                Прослушивания
-              </span>
-              <span className="min-w-0 whitespace-nowrap pb-0.5 text-right leading-tight" title="Длительность">
-                Время
-              </span>
-              <span />
-            </div>
-            <TrackRowStack>
-              {tracksQ.data.slice(0, showAllTracks ? undefined : 5).map((track, i) => (
-                <TrackRow
-                  key={track.id}
-                  track={track}
-                  index={i}
-                  queue={tracksQ.data ?? []}
-                  showPlayCount
-                />
-              ))}
-            </TrackRowStack>
-            {tracksQ.data.length > 5 && (
-              <button
-                type="button"
-                onClick={() => setShowAllTracks(!showAllTracks)}
-                className="mt-3 text-sm font-medium text-[var(--primary)] hover:underline"
+          {popularTracksQ.data && popularTracksQ.data.length > 0 && (
+            <section>
+              <SectionHeader title="Популярные треки" />
+              <div
+                className="mb-2 hidden items-end gap-x-2 border-b border-[var(--border)] pb-2 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] sm:grid sm:text-[11px]"
+                style={{ gridTemplateColumns: TRACK_ROW_GRID_WITH_PLAY_COUNT }}
+                aria-hidden
               >
-                {showAllTracks ? 'Скрыть' : `Показать все ${tracksQ.data.length}`}
-              </button>
-            )}
-          </section>
+                <span />
+                <span />
+                <span className="min-w-0 pb-0.5 text-left leading-tight">Трек</span>
+                <span className="min-w-0 pb-0.5 text-center leading-tight" title="Действия">
+                  {' '}
+                </span>
+                <span className="min-w-0 whitespace-nowrap pb-0.5 text-right leading-tight" title="Прослушивания">
+                  Прослушивания
+                </span>
+                <span className="min-w-0 whitespace-nowrap pb-0.5 text-right leading-tight" title="Длительность">
+                  Время
+                </span>
+                <span />
+              </div>
+              <TrackRowStack>
+                {popularTracksQ.data.map((track, i) => (
+                  <TrackRow
+                    key={track.id}
+                    track={track}
+                    index={i}
+                    queue={popularTracksQ.data}
+                    showPlayCount
+                  />
+                ))}
+              </TrackRowStack>
+              {tracksQ.data && tracksQ.data.length > 10 && (
+                <button
+                  type="button"
+                  onClick={() => setShowAllTracks(!showAllTracks)}
+                  className="mt-3 text-sm font-medium text-[var(--primary)] hover:underline"
+                >
+                  {showAllTracks ? 'Скрыть' : `Показать все треки`}
+                </button>
+              )}
+            </section>
+          )}
 
-          {tracksQ.data[0] && (
+          {tracksQ.data?.[0] && (
             <section>
               <SectionHeader title="Последний релиз" />
               <div className="flex flex-col gap-5 rounded-[var(--radius-card)] bg-[var(--bg-surface)] p-5 shadow-[var(--shadow-card)] sm:flex-row sm:items-center">
@@ -858,7 +866,7 @@ export function ArtistPage() {
           <section>
             <SectionHeader title="Все треки" />
             <HorizontalTrackShelf aria-label="Все треки артиста">
-              {tracksQ.data.map((t) => (
+              {tracksQ.data?.map((t) => (
                 <HorizontalTrackShelfSlot key={t.id}>
                   <TrackCard track={t} queue={tracksQ.data} />
                 </HorizontalTrackShelfSlot>

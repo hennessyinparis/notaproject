@@ -62,3 +62,5 @@ class User(Base):
     withdrawal_requests: Mapped[List["WithdrawalRequest"]] = relationship(
         "WithdrawalRequest", back_populates="artist", foreign_keys="WithdrawalRequest.artist_id"
     )
+    payments: Mapped[List["Payment"]] = relationship("Payment", back_populates="user", foreign_keys="Payment.user_id")
+

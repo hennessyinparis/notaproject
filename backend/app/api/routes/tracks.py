@@ -336,6 +336,29 @@ async def report_play(
         raise HTTPException(status_code=404, detail="Трек не найден")
 
     if not user or not user.is_admin:
+        # --- Анти-накрутка: проверяем, может ли это прослушивание считаться ---
+        counts_as_play = False
+        is_paid = False
+
+        # Только зарегистрированные пользователи, не артист трека, и слушающие впервые
+        if user and user.id != t.user_id:
+            existing = await db.execute(
+                select(TrackPlay).where(
+                    TrackPlay.track_id == track_id,
+                    TrackPlay.listener_id == user.id
+                )
+            )
+            if existing.scalar_one_or_none() is None:
+                # Первое прослушивание этого пользователя на этом треке
+                counts_as_play = True
+
+                # Проверяем платное ли (активная подписка + полное прослушивание)
+                if body.is_complete:
+                    from app.services.subscription_access import is_premium_listener
+                    if is_premium_listener(user):
+                        is_paid = True
+
+        # Записываем факт прослушивания (для аналитики, даже если не считается)
         play = TrackPlay(
             track_id=track_id,
             listener_id=user.id if user else None,
@@ -344,24 +367,18 @@ async def report_play(
             source=body.source,
         )
         db.add(play)
-        
-        # Инкрементируем общий счетчик прослушиваний для всех
-        play_incr = {"plays_count": Track.plays_count + 1}
-        
-        # Платные прослушивания: только зарегистрированные пользователи с активной подпиской
-        is_paid = False
-        if user and body.is_complete:
-            # Проверяем активную подписку (Plus, Student, Artist Pro — все платные)
-            from app.services.subscription_access import is_premium_listener
-            if is_premium_listener(user):
-                is_paid = True
+
+        # Инкрементируем счетчики только для первого уникального прослушивания
+        if counts_as_play:
+            play_incr = {"plays_count": Track.plays_count + 1}
+            if is_paid:
                 play_incr["paid_plays_count"] = Track.paid_plays_count + 1
-        
-        await db.execute(update(Track).where(Track.id == track_id).values(**play_incr))
-        
-        # Роялти только за платные прослушивания от подписчиков
-        if is_paid:
-            await accrue_royalty_on_complete_play(db, t, user)
+            await db.execute(update(Track).where(Track.id == track_id).values(**play_incr))
+
+            # Роялти только за платные прослушивания от подписчиков
+            if is_paid:
+                await accrue_royalty_on_complete_play(db, t, user)
+
     return {"ok": True}
 
 
@@ -405,9 +422,6 @@ async def like_track(
         raise HTTPException(status_code=404, detail="Трек не найден")
     if t.user and t.user.is_admin and not user.is_admin:
         raise HTTPException(status_code=404, detail="Трек не найден")
-    if t.user_id == user.id:
-        raise HTTPException(status_code=400, detail="Нельзя лайкнуть собственный трек")
-
     existing = await db.execute(
         select(Like).where(Like.user_id == user.id, Like.track_id == track_id)
     )
@@ -433,6 +447,7 @@ async def like_track(
     await db.flush()
     await db.refresh(t)
     
+    # Уведомление только если лайк не от владельца трека
     if t.user_id and t.user_id != user.id and not user.is_admin:
         notif = Notification(
             user_id=t.user_id, type=NotificationType.TRACK_LIKED.value,
@@ -497,8 +512,6 @@ async def repost_track(
         raise HTTPException(status_code=404, detail="Трек не найден")
     if t.user and t.user.is_admin and not user.is_admin:
         raise HTTPException(status_code=404, detail="Трек не найден")
-    if t.user_id == user.id:
-        raise HTTPException(status_code=400, detail="Нельзя репостить собственный трек")
 
     existing = await db.execute(
         select(Repost).where(Repost.user_id == user.id, Repost.track_id == track_id)
@@ -526,6 +539,7 @@ async def repost_track(
     await db.flush()
     await db.refresh(t)
     
+    # Уведомление только если репост не от владельца трека
     if t.user_id and t.user_id != user.id and not user.is_admin:
         notif = Notification(
             user_id=t.user_id, type=NotificationType.TRACK_REPOSTED.value,

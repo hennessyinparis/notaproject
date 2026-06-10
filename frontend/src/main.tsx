@@ -28,6 +28,7 @@ import { Upload } from './pages/Upload';
 import { Studio } from './pages/Studio';
 import { Analytics } from './pages/Analytics';
 import { Subscriptions } from './pages/Subscriptions';
+import { PaymentReturn } from './pages/PaymentReturn';
 import { Notifications } from './pages/Notifications';
 import { Settings } from './pages/Settings';
 import { Login } from './pages/Login';
@@ -186,6 +187,9 @@ createRoot(document.getElementById('root')!).render(
               }
             />
             <Route path="subscriptions" element={<Subscriptions />} />
+            <Route path="payments/return" element={<PaymentReturn />} />
+            <Route path="payments/success" element={<PaymentReturn />} />
+            <Route path="subscriptions/payments/success" element={<PaymentReturn />} />
             <Route
               path="notifications"
               element={

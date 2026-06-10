@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Maximize2,
   Minimize2,
@@ -72,6 +72,7 @@ export function GlobalPlayer() {
   const user = useAuthStore((s) => s.user);
   const isPaid = hasPaidSubscription(user);
   const [showSleepMenu, setShowSleepMenu] = useState(false);
+  const sleepMenuRef = useRef<HTMLDivElement>(null);
   const [showQueue, setShowQueue] = useState(false);
   const [showEq, setShowEq] = useState(false);
   const navigate = useNavigate();
@@ -90,6 +91,7 @@ export function GlobalPlayer() {
       setSearchUser('');
       setShowQueue(false);
       setShowEq(false);
+      setShowSleepMenu(false);
       return;
     }
     setIsLiked(currentTrack.is_liked ?? false);
@@ -99,14 +101,49 @@ export function GlobalPlayer() {
   }, [currentTrack?.id, currentTrack?.is_liked, currentTrack?.is_reposted]);
 
   useEffect(() => {
+    if (!showSleepMenu) return;
+    const handleClick = (e: MouseEvent) => {
+      if (sleepMenuRef.current && !sleepMenuRef.current.contains(e.target as Node)) {
+        setShowSleepMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [showSleepMenu]);
+
+  useEffect(() => {
     if (!sleepTimerEnd) return;
-    const id = window.setInterval(() => tickSleepTimer(), 30000);
+    const id = window.setInterval(() => tickSleepTimer(), 1000);
     return () => window.clearInterval(id);
   }, [sleepTimerEnd, tickSleepTimer]);
 
-  const sleepLabel = sleepTimerEnd
-    ? `${Math.max(0, Math.ceil((sleepTimerEnd - Date.now()) / 60000))} мин`
-    : null;
+  const [sleepRemaining, setSleepRemaining] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!sleepTimerEnd) {
+      setSleepRemaining(null);
+      return;
+    }
+    const update = () => {
+      const remainingMs = Math.max(0, sleepTimerEnd - Date.now());
+      if (remainingMs <= 0) {
+        setSleepRemaining(null);
+        return;
+      }
+      const m = Math.floor(remainingMs / 60000);
+      const s = Math.ceil((remainingMs % 60000) / 1000);
+      if (m > 0) {
+        setSleepRemaining(`${m}:${s.toString().padStart(2, '0')}`);
+      } else {
+        setSleepRemaining(`${s}с`);
+      }
+    };
+    update();
+    const id = window.setInterval(update, 1000);
+    return () => window.clearInterval(id);
+  }, [sleepTimerEnd]);
+
+  const sleepLabel = sleepRemaining;
 
   const likeMutation = useMutation({
     mutationFn: async () => {
@@ -331,16 +368,16 @@ export function GlobalPlayer() {
             {artistUsername ? (
               <Link
                 to={`/artist/${artistUsername}`}
-                className="mt-0.5 block truncate text-xs font-medium text-[var(--text-muted)] hover:text-[var(--primary)]"
+                className="block truncate text-xs font-medium text-[var(--text-muted)] hover:text-[var(--primary)]"
               >
                 {artistName}
               </Link>
             ) : (
-              <span className="mt-0.5 block truncate text-xs font-medium text-[var(--text-muted)]">
+              <span className="block truncate text-xs font-medium text-[var(--text-muted)]">
                 {artistName}
               </span>
             )}
-            <div className="mt-1 flex items-center gap-0.5">
+            <div className="flex items-center gap-0.5">
               <button
                 type="button"
                 className={actionIconCls}
@@ -412,7 +449,12 @@ export function GlobalPlayer() {
               aria-label="Громкость"
             />
           </div>
-          <div className="relative">
+          <div className="relative flex items-center gap-1">
+            {sleepLabel && (
+              <span className="text-[10px] font-bold text-[var(--primary)] tabular-nums min-w-[28px] text-right">
+                {sleepLabel}
+              </span>
+            )}
             <button
               type="button"
               onClick={() => {
@@ -443,19 +485,28 @@ export function GlobalPlayer() {
               )}
             </button>
             {showSleepMenu && isPaid && (
-              <div className="absolute bottom-full right-0 z-50 mb-2 min-w-[140px] rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-2 shadow-lg">
-                {[15, 30, 45, 60].map((m) => (
+              <div
+                ref={sleepMenuRef}
+                className="absolute bottom-full right-0 z-50 mb-2 min-w-[140px] rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-2 shadow-lg"
+              >
+                {[
+                  { label: '15 сек', value: 0.25 },
+                  { label: '15 мин', value: 15 },
+                  { label: '30 мин', value: 30 },
+                  { label: '45 мин', value: 45 },
+                  { label: '60 мин', value: 60 },
+                ].map((item) => (
                   <button
-                    key={m}
+                    key={item.label}
                     type="button"
                     className="block w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-[var(--bg-elevated)]"
                     onClick={() => {
-                      setSleepTimer(m);
+                      setSleepTimer(item.value);
                       setShowSleepMenu(false);
-                      toast.success(`Сон через ${m} мин`);
+                      toast.success(`Сон через ${item.label}`);
                     }}
                   >
-                    {m} мин
+                    {item.label}
                   </button>
                 ))}
                 <button

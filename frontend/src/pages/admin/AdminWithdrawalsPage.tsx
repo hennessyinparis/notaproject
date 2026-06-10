@@ -4,7 +4,7 @@ import { Wallet, CheckCircle, XCircle, Clock, AlertCircle, Loader2 } from 'lucid
 import toast from 'react-hot-toast';
 
 import { api } from '../../api/client';
-import { AdminLayout } from '../../components/admin/AdminLayout';
+
 
 interface WithdrawalItem {
   id: number;
@@ -67,8 +67,8 @@ export default function AdminWithdrawalsPage() {
   };
 
   return (
-    <AdminLayout title="Выплаты артистам" description="Управление заявками на вывод средств">
-      <div className="space-y-4">
+    <>
+    <div className="space-y-4">
         <div className="flex items-center gap-2">
           {['all', 'pending', 'processing', 'completed', 'rejected'].map((s) => (
             <button
@@ -199,6 +199,6 @@ export default function AdminWithdrawalsPage() {
           </div>
         </div>
       )}
-    </AdminLayout>
+    </>
   );
 }

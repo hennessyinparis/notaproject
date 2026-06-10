@@ -1,5 +1,5 @@
 import { clsx } from 'clsx';
-import { Link2, ListMusic, MoreHorizontal, Music2, Pause, Play } from 'lucide-react';
+import { Link2, ListMusic, ListPlus, MoreHorizontal, Music2, Pause, Play } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useNavigate } from 'react-router-dom';
@@ -110,6 +110,17 @@ export function TrackCard({ track, queue, size = 'default', onPlay }: Props) {
         >
           <ListMusic className="h-4 w-4 shrink-0 text-[var(--text-muted)]" aria-hidden />
           В плейлист
+        </button>
+        <button
+          type="button"
+          className={menuItemCls}
+          onClick={() => {
+            usePlayerStore.getState().addToQueue(track);
+            setMenuOpen(false);
+          }}
+        >
+          <ListPlus className="h-4 w-4 shrink-0 text-[var(--text-muted)]" aria-hidden />
+          В очередь
         </button>
         <button
           type="button"

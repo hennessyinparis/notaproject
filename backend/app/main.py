@@ -7,9 +7,9 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from app.api.routes import (
-    ads,
     admin,
     admin_reports,
+    ads,
     analytics,
     auth,
     comments,
@@ -17,6 +17,7 @@ from app.api.routes import (
     feed,
     messages,
     notifications,
+    payments,
     playlists,
     reports,
     royalties,
@@ -60,7 +61,7 @@ app.add_middleware(SecurityHeadersMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins_list,
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -78,6 +79,7 @@ app.include_router(feed.router, prefix=api_prefix)
 app.include_router(messages.router, prefix=api_prefix)
 app.include_router(notifications.router, prefix=api_prefix)
 app.include_router(subscriptions.router, prefix=api_prefix)
+app.include_router(payments.router, prefix=api_prefix)
 app.include_router(analytics.router, prefix=api_prefix)
 app.include_router(royalties.router, prefix=api_prefix)
 app.include_router(ads.router, prefix=api_prefix)

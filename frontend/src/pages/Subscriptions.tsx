@@ -222,6 +222,30 @@ export function Subscriptions() {
       setPayStep('student_doc');
       return;
     }
+
+    if (method === 'yookassa') {
+      setPayStep('processing');
+      try {
+        const { data } = await api.post('/api/payments/create', null, {
+          params: { subscription_type: selectedPlan },
+        });
+
+        if (data.confirmation_url) {
+          // Save payment ID and redirect to YooKassa
+          localStorage.setItem('last_payment_id', String(data.payment_id));
+          window.location.href = data.confirmation_url;
+        } else {
+          toast.error('Не удалось создать платёж');
+          setPayStep('choose');
+        }
+      } catch (err: any) {
+        toast.error(err?.response?.data?.detail || 'Ошибка создания платежа');
+        setPayStep('choose');
+      }
+      return;
+    }
+
+    // Fallback to mock payment for demo/testing
     setPayStep('processing');
     await new Promise((r) => setTimeout(r, 1200));
     try {
@@ -520,17 +544,24 @@ export function Subscriptions() {
             )}
             {payStep === 'choose' && (
               <>
-                <h3 style={{ fontSize: 20, fontWeight: 700, marginBottom: 20 }}>Способ оплаты</h3>
-                {['Банковская карта', 'СБП', 'Криптовалюта'].map((method) => (
-                  <button
-                    key={method}
-                    type="button"
-                    onClick={() => startPay(method)}
-                    style={{ display: 'block', width: '100%', padding: '14px 20px', marginBottom: 10, background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 12, fontSize: 15, cursor: 'pointer', color: 'var(--text-primary)' }}
-                  >
-                    {method}
-                  </button>
-                ))}
+                <h3 style={{ fontSize: 20, fontWeight: 700, marginBottom: 20 }}>Оплата подписки</h3>
+                <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>
+                  {selectedPlanName} — подписка на 30 дней
+                </p>
+                <button
+                  type="button"
+                  onClick={() => startPay('yookassa')}
+                  style={{ display: 'block', width: '100%', padding: '14px 20px', marginBottom: 10, background: 'var(--primary)', color: '#fff', border: 'none', borderRadius: 12, fontSize: 15, cursor: 'pointer', fontWeight: 600 }}
+                >
+                  Оплатить через ЮKassa (тест)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => startPay('mock')}
+                  style={{ display: 'block', width: '100%', padding: '14px 20px', marginBottom: 10, background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 12, fontSize: 15, cursor: 'pointer', color: 'var(--text-primary)' }}
+                >
+                  Имитация оплаты (для теста)
+                </button>
                 <button type="button" onClick={() => setShowPayModal(false)} style={{ marginTop: 4, background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
                   Отмена
                 </button>

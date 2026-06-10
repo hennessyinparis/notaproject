@@ -7,6 +7,7 @@ from app.models.follow import Follow
 from app.models.like import Like
 from app.models.message import Message
 from app.models.notification import Notification, NotificationType
+from app.models.payment import Payment
 from app.models.playlist import Playlist, PlaylistCollaborator, PlaylistLike, PlaylistTrack
 from app.models.report import Report, ReportReason, ReportStatus, ReportType
 from app.models.repost import Repost
@@ -35,6 +36,7 @@ __all__ = [
     "CommentLike",
     "Notification",
     "NotificationType",
+    "Payment",
     "Subscription",
     "SubscriptionPlanType",
     "TrackPlay",

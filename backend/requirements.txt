@@ -24,6 +24,9 @@ celery[redis]==5.4.0
 httpx==0.28.1
 slowapi==0.1.9
 
+# Payment
+yookassa==3.5.0
+
 # Tests
 pytest==8.3.4
 pytest-asyncio==0.25.3

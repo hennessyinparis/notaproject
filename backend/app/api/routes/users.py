@@ -368,6 +368,31 @@ async def user_tracks(
     return await enrich_tracks_public(db, tracks, viewer.id if viewer else None)
 
 
+@router.get("/{username}/tracks/popular", response_model=List[TrackPublic])
+async def user_popular_tracks(
+    username: str,
+    db: AsyncSession = Depends(get_db),
+    viewer: Annotated[Optional[User], Depends(get_current_user_optional)] = None,
+    limit: int = Query(10, ge=1, le=10),
+) -> List[TrackPublic]:
+    """Популярные треки артиста (топ по прослушиваниям)."""
+    ur = await db.execute(select(User).where(User.username == username))
+    u = ur.scalar_one_or_none()
+    if not u:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    ensure_not_admin(u, viewer)
+    q = (
+        select(Track)
+        .where(Track.user_id == u.id, Track.is_public.is_(True), Track.is_deleted.is_(False))
+        .options(selectinload(Track.user))
+        .order_by(Track.plays_count.desc(), Track.created_at.desc())
+        .limit(limit)
+    )
+    r = await db.execute(q)
+    tracks = list(r.scalars().all())
+    return await enrich_tracks_public(db, tracks, viewer.id if viewer else None)
+
+
 @router.post("/{username}/follow")
 @limiter.limit(RateLimits.FOLLOW_ACTION)
 async def follow_user(

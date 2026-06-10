@@ -20,6 +20,7 @@ class Settings(BaseSettings):
 
     MEDIA_DIR: Path = Path("media")
     BASE_URL: str = "http://localhost:8000"
+    FRONTEND_URL: str = "http://localhost:5173"
 
     CORS_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
 
@@ -39,19 +40,17 @@ class Settings(BaseSettings):
     MAX_COVER_SIZE_MB: int = 10
     MAX_AVATAR_SIZE_MB: int = 5
 
-    # Subscription prices (RUB)
-    PRICE_LISTENER_PLUS_RUB: float = 299.0
-    PRICE_LISTENER_STUDENT_RUB: float = 149.0
-    PRICE_ARTIST_PRO_RUB: float = 599.0
-
-    # Royalties
-    ROYALTY_PER_COMPLETE_PLAY_RUB: float = 0.05
+    # YooKassa payment integration (test mode)
+    YOOKASSA_SHOP_ID: str = ""
+    YOOKASSA_SECRET_KEY: str = ""
+    YOOKASSA_TEST_MODE: bool = True  # Always use test mode for safety
 
     @property
-    def cors_origins_list(self) -> List[str]:
-        return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
+    def cors_origins(self) -> List[str]:
+        return [o.strip() for o in self.CORS_ORIGINS.split(",")]
 
 
-@lru_cache
 def get_settings() -> Settings:
+    # No lru_cache in dev so .env changes are picked up after reload
     return Settings()
+
